@@ -12,6 +12,11 @@ Get a version, from some file, and export as environment variable and into other
 
 TO be shared soon!
 
+## Proposed usage
+
+I'm planning to use the code-utils as a git submodule in other projects, so I have a firm dependency management. 
+It could also be binary but then you would have to download the scripts, unpack and use them.
+
 # Repository structure
 
 Each little util should have a foot-print with a very short description here in the repository reade, but placed in it's own folder.
