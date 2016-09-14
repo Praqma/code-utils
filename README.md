@@ -13,6 +13,18 @@ The well established concept of pretested integration, made available first as t
 As a groovy script: https://github.com/Praqma/pretested-integration
 As a groovy demo here for binaries: https://github.com/Praqma/pretested-binary-integration-concept
 
+### Job DSL collections
+
+Though it is work in progress, we have started a Job DSL collection project trying to create building block for Job DSL snippets for all our common jobs.
+
+It can serve as inpspiration for how to structure such things, our plain copy-paste of snippets you like.
+You could also when the project is more mature depend on the snippets.
+
+See these repositories:
+
+* https://github.com/Praqma/job-dsl-collection
+* https://github.com/Praqma/jobdsl-helpers
+
 ## Proposed usage
 
 I'm planning to use the code-utils as a git submodule in other projects, so I have a firm dependency management.
