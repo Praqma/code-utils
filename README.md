@@ -40,6 +40,12 @@ Using natural sort, it run all the xmlaccess script in the folder you pass it.
 
 Rest of the details can be found reading the script - it is simple, promise ;-)
 
+### File pattern scanner
+
+If you are forced to use a crappy tool, that doesn't fail with non-zero exit codes, the file pattern scanner can help if the crappy tools just report the problems in for example a log file. You can scan that log file and report the error, and fail accordingly.
+
+See https://github.com/Praqma/file-pattern-scanner
+
 ## Proposed usage
 
 I'm planning to use the code-utils as a git submodule in other projects, so I have a firm dependency management.
