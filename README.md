@@ -33,6 +33,13 @@ This original use-case is IBM WAS configuration script, in Jython, that can't ta
 
 For details, see [sub directory readme in transformAndRun](transformAndRun/readme.md)
 
+### Run WepShere xmlaccess scripts
+
+A little Groovy script to orchestrate exection of IBM WepShere Portal xmlaccess commands, so there can be several files executed in some order.
+Using natural sort, it run all the xmlaccess script in the folder you pass it.
+
+Rest of the details can be found reading the script - it is simple, promise ;-)
+
 ## Proposed usage
 
 I'm planning to use the code-utils as a git submodule in other projects, so I have a firm dependency management.
