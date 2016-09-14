@@ -1,0 +1,5 @@
+my-boss-$CLIENT cannot $DESIRED_ACTION(TM) yet. $SUPERIOR told him to $REQUIRED_TASK first.
+Luckily, $CLIENT can use his secret weapon, $ENV_SECRET_WEAPON, to $DESIRED_ACTION without having to $REQUIRED_TASK.
+
+I have a ${WEIRDNAME}.zip file I need to use!
+Please not using dollarsignWEIRDNAME without brackets do not work either.

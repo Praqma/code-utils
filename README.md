@@ -25,6 +25,14 @@ See these repositories:
 * https://github.com/Praqma/job-dsl-collection
 * https://github.com/Praqma/jobdsl-helpers
 
+### Transform and Run
+
+A script that can transform another script, before executing it. Usage can be scripts that can't take variables, or are used as inputs to other scripts.
+
+This original use-case is IBM WAS configuration script, in Jython, that can't take parameters as the script itself is a parameter to a command.
+
+For details, see [sub directory readme in transformAndRun](transformAndRun/readme.md)
+
 ## Proposed usage
 
 I'm planning to use the code-utils as a git submodule in other projects, so I have a firm dependency management.

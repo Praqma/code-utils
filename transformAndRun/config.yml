@@ -1,0 +1,6 @@
+files:
+- [story.txt, transform.yml]
+commands:
+- echo $USER is going to tell you a wonderful story.
+- echo This is a story involving $ENV_SECRET_WEAPON!
+- type story.txt
