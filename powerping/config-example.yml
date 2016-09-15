@@ -1,0 +1,36 @@
+# Example configuration file for what the powerping script 
+# will check.
+
+# **************************************************************************
+# * Indentation matter - it is YML so you get list, set etc. based on this *
+# **************************************************************************
+
+
+
+# Example on general re-useable configuration, to avoid specifying same ports many times
+configuration:
+  database_standard_ports: [40006, 40012, 40018]
+  portal_standard_ports: [8879, 9043, 10039, 22]
+  web_ports: [80, 443]
+  
+  
+# 'GENERIC' is target to check, it is named and used as parameter to powerping:
+# `groovy powerPing.groovy config-example.yml EXAMPLE`
+EXAMPLE:
+# specify DNS host name here to check DNS look.
+# IP-address would also work, but then we would check DNS
+  code.praqma.net:
+# specify ports for the firewall check - we try a TCP connection to them
+    ports: [80, 8090]
+  fogbugz.praqma.net:
+    ports: [80, 443]
+# You can use the configuration from the top of the file, to avoid specifying the same ports over and over again
+  db.praqma.net:
+    ports: [database_standard_ports]
+# You can add to those port, and extra one:
+  db.praqma.net:
+    ports: [database_standard_ports, 8080]
+# URL checking
+  code.praqma.net:
+    ports: [443, 80]
+    paths: ['https://code.praqma.net/ci', 'https://code.praqma.net/docs']

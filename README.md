@@ -33,12 +33,21 @@ This original use-case is IBM WAS configuration script, in Jython, that can't ta
 
 For details, see [sub directory readme in transformAndRun](transformAndRun/readme.md)
 
-### Run WepShere xmlaccess scripts
+### Run WebSphere xmlaccess scripts
 
-A little Groovy script to orchestrate exection of IBM WepShere Portal xmlaccess commands, so there can be several files executed in some order.
+A little Groovy script to orchestrate exection of IBM WebSphere Portal xmlaccess commands, so there can be several files executed in some order.
 Using natural sort, it run all the xmlaccess script in the folder you pass it.
 
 Rest of the details can be found reading the script - it is simple, promise ;-)
+
+### powerping
+
+Simple little groovy script to check DNS lookup, TCP connection and ping and curl of http(s) addresses against a list of hosts in the configuration file.
+
+Check firewall rules, from node to node using Jenkins build slave. You can't easily do this with monitoring systems.
+
+Read more on use-case in the [sub directory readme in powerping](powerping/README.md)
+
 
 ### File pattern scanner
 
