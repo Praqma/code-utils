@@ -77,6 +77,13 @@ Right now - not so many, except from keeping the repository structure as above d
 
 Let's see how this evolves.
 
+## Testing
+
+You should have some testing alongside your scripts. 
+An old idea is described in the testing-idea folder, see [testing-idea/readme.md](testing-idea/readme.md)
+
+You chose any way to test your scripts.
+
 # Roadmap for code-utils
 
 Some thoughts:
