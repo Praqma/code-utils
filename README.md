@@ -18,13 +18,6 @@ __[misc/jenkins-createUniqueArtifact.rb](misc/jenkins-createUniqueArtifact.rb)__
 
 __[misc/createStagingNo.rb](misc/createStagingNo.rb)__: Modulo 10 a build number from Jenkins, to create round robin deploy or staging folders.
 
-__[misc/](misc/)__:
-__[misc/](misc/)__:
-__[misc/](misc/)__:
-__[misc/](misc/)__:
-__[misc/](misc/)__:
-
-
 ### Set version in C/C++ files
 
 A simple conceptual script that can stamp build version into C/C++ application. Can be re-used for other things.
@@ -36,6 +29,8 @@ See the [setversion/](setversion/) folder for the script, in Bash and Ruby, and 
 
 A Ruby wraper script around running CppCheck, and some configuration files to adjust the way it analyses the code.
 Wrapper script was mostly used to gather relevant files to include in analysis, and try to find header files to include for the analysis to be more correct.
+
+See the [doCppCheck/](doCppCheck/) folder for the script.
 
 ### Pretested Integration
 
