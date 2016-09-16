@@ -4,7 +4,38 @@ Continuous Delivery utilities - small scripts and concepts used in continuous de
 Instead we all keep reinventing the same small concepts and scripts again and again we should share them.
 This repository is for sharing all the small nice little scripts used on daily basis for continuous integrations, continous delivery, builds, artifact management or what-ever is needed for you to get the build and delivery pipeline up and running.
 
+Many of the added scripts and snippets are quite old, added during a clean-up. They might serve as inspiration, rather than production useable scripts. Some of the thigns might also be done in another way today.
+
 ## Utils available
+
+### Misc-folder
+
+Contains different small scripts.
+
+__[misc/checkFileSyncModified.sh](misc/checkFileSyncModified.sh)__: Bash script to check if one file in a list of files have been modified since last time, without the other being updated. And old praqmatic solution to keeping files in sync that could be reused. Used in a Jenkins job, that failed if one of the files being changed without the others being chagned as well. Don't check if the changes are relevant.
+
+__[misc/jenkins-createUniqueArtifact.rb](misc/jenkins-createUniqueArtifact.rb)__: can create unique files with some traceability content in a Jenkins job, that can be archived and fingerprinted to create traces between Jenkins job. The created unique artifacts, could also be stored to show important information with artifacts.
+
+__[misc/createStagingNo.rb](misc/createStagingNo.rb)__: Modulo 10 a build number from Jenkins, to create round robin deploy or staging folders.
+
+__[misc/](misc/)__:
+__[misc/](misc/)__:
+__[misc/](misc/)__:
+__[misc/](misc/)__:
+__[misc/](misc/)__:
+
+
+### Set version in C/C++ files
+
+A simple conceptual script that can stamp build version into C/C++ application. Can be re-used for other things.
+Basically works on headerfiles, that needs to be included.
+
+See the [setversion/](setversion/) folder for the script, in Bash and Ruby, and related template files.
+
+### doCppCheck
+
+A Ruby wraper script around running CppCheck, and some configuration files to adjust the way it analyses the code.
+Wrapper script was mostly used to gather relevant files to include in analysis, and try to find header files to include for the analysis to be more correct.
 
 ### Pretested Integration
 
@@ -79,7 +110,7 @@ Let's see how this evolves.
 
 ## Testing
 
-You should have some testing alongside your scripts. 
+You should have some testing alongside your scripts.
 An old idea is described in the testing-idea folder, see [testing-idea/readme.md](testing-idea/readme.md)
 
 You chose any way to test your scripts.

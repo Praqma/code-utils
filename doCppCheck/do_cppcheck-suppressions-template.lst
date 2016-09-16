@@ -1,0 +1,31 @@
+// Cppcheck states in it's help the following way to whitelist error.
+// This can be used for error we either acknowledge is okay, or that we can not
+// fix due to third party code etc.
+// Cppcheck uses the following syntax.
+//	-suppress=<spec>  Suppress warnings that match <spec>. The format of
+//                         <spec> is:
+//                         [error id]:[filename]:[line]
+//                         The [filename] and [line] are optional. If [error id]
+//                         is a wildcard '*', all error ids match.
+//    	--suppressions-list=<file>
+//                         Suppress warnings listed in the file. Each suppression
+//                         is in the same format as <spec> above.
+
+// This file is included, through the --suppression-list paramter, if configured in
+// the do_cppcheck-settings.rb file.
+//
+// Do not use linenumber - but always id and file. Note it supresses alle the warnings with the same id.
+//
+// This it QT error, we can not fix
+//<error file="/usr/include/qt4/QtCore/qglobal.h" line="268" id="preprocessorErrorDirective" severity="error" msg="&quot;Qt has not been ported to this OS - talk to qt-bugs@trolltech.com&quot;"/>
+//<error file="/usr/include/qt4/QtCore/qglobal.h" line="786" id="preprocessorErrorDirective" severity="error" msg="&quot;Qt has not been tested with this compiler - talk to qt-bugs@trolltech.com&quot;"/>
+//<error file="/usr/include/qt4/QtCore/qglobal.h" line="268" id="preprocessorErrorDirective" severity="error" msg="#error &quot;Qt has not been ported to this OS - talk to qt-bugs@trolltech.com&quot;"/>
+// We will exclude everything regarding gt4 stuff
+*:/usr/include/qt4*
+
+// You can also exclude less like just:
+// preprocessorErrorDirective:/usr/include/qt4/QtCore/qglobal.h
+
+
+// We do not have control over msgbus_applications/view/ViewMachine.h thus excluding this file also
+*:msgbus_applications/view/ViewMachine.h
