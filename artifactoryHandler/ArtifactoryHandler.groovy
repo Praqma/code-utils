@@ -4,7 +4,7 @@ package artifactory
  */
 
 
-// TODO Change resolver to internal Artifactory URL http://artifact.alm.dsv.com:8081/artifactory/repo/
+// TODO Change resolver to wanted Artifactory URL, i.e, http://artifact.mycompany.com:8081/artifactory/repo/
 
 @GrabResolver(name='artifactory', root='http://localhost:8081/artifactory/repo/', m2Compatible=true)
 @Grab(group ='org.jfrog.artifactory.client', module ='artifactory-java-client-services', version = '0.16')

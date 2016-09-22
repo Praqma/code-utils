@@ -5,7 +5,7 @@ SCRIPT_VERSION="1.0.0"
 ARTIFACTORY_IMAGE="jfrog-docker-reg2.bintray.io/jfrog/artifactory-pro:latest"
 ARTIFACTORY_PORT="8081:8081"
 CONTAINER_NAME="artifactory_pro_latest_test"
-TEST_SCRIPT="ArtifactHandlerTest.groovy"
+TEST_SCRIPT="ArtifactoryHandlerTest.groovy"
 
 #Commands: Change path if needed.
 ECHO="echo"
@@ -109,14 +109,14 @@ function runTests(){
     $ECHO "Running tests..."
     local REPO1="libs-content-test"
     local REPO2="libs-content-local"
-    local CMD="$GROOVY ArtifactHandler.groovy --action create-repo --repository $REPO1 --web-server http://localhost:8081/ --userName admin --password password"
+    local CMD="$GROOVY ArtifactoryHandler.groovy --action create-repo --repository $REPO1 --web-server http://localhost:8081/ --userName admin --password password"
     $CMD
     if [ "$?" -ne 0 ]; then
         $ECHO "ERROR: Could not create REPO: $REPO1!!!"
         exit 1
     fi
 
-    CMD="$GROOVY ArtifactHandler.groovy --action 'create-repo' --repository '$REPO2' --web-server 'http://localhost:8081/' --userName 'admin' --password 'password'"
+    CMD="$GROOVY ArtifactoryHandler.groovy --action 'create-repo' --repository '$REPO2' --web-server 'http://localhost:8081/' --userName 'admin' --password 'password'"
     #$CMD
     if [ "$?" -ne 0 ]; then
         $ECHO "ERROR: Could not create REPO: $REPO2!!!"

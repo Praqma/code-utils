@@ -6,7 +6,7 @@ package artifactory
  * You can set the variable verbose to true to get output. But it is a bit messy..
  */
 class ArtifactHandlerTest extends GroovyTestCase {
-    def base = "groovy ArtifactHandler.groovy "
+    def base = "groovy ArtifactoryHandler.groovy "
     def command = ""
     def server = " --web-server "
     def userName = " --userName "
