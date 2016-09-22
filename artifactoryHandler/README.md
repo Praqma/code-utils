@@ -4,7 +4,7 @@ The purpose of these scripts is to interface to [Artifactory](https://www.jfrog.
 The most common use case is when you need to interact with Artifactory from a shell of some type.
 It is generally recommended to use standard build tools like, Maven, Ant, etc, for this uploading and retrieving artifacts.
 
-## artifactoryHandler.groovy
+## ArtifactoryHandler.groovy
 The script uses jfrogs [Artifactory client](https://github.com/JFrogDev/artifactory-client-java). It also uses Kohsuke's
 [args4j](http://args4j.kohsuke.org/) library for handling command line arguments.
 
