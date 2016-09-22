@@ -65,7 +65,7 @@ unambiguous and only **one** result **should** be returned.
 
 In either case, if nothing is found then the script will exit with 1.
 
->groovy artifactoryHandler.groovy --action 'find' --artifact 'args4j' --web-server 'http://localhost:8081/' --userName 'admin' --password 'password'
+>groovy ArtifactoryHandler.groovy --action 'find' --artifact 'args4j' --web-server 'http://localhost:8081/' --userName 'admin' --password 'password'
 
 >Looking for artifact: args4j
 
@@ -83,7 +83,7 @@ In either case, if nothing is found then the script will exit with 1.
 
 The list repos will list all **virtual**, **local** and **remote** repositories.
 
->groovy artifactoryHandler.groovy --action 'list-repos' --web-server 'http://localhost:8081/' --userName 'admin' --password 'password'
+>groovy ArtifactoryHandler.groovy --action 'list-repos' --web-server 'http://localhost:8081/' --userName 'admin' --password 'password'
 
 >Listing Repositories
 
@@ -127,7 +127,7 @@ If an artifact which matches the domain/version/name already exists in the speci
 
 #### Example: Existing artifact
 
->groovy artifactoryHandler.groovy --action 'upload' --artifact 'deploy-scripts.tar.gz' --domain '/com/dsv/ds/content/' --location '/home/timothy/Documents/DSV' --repository 'libs-content-test' --version '1.3.8' --web-server 'http://localhost:8081/' --userName 'admin' --password 'password'
+>groovy ArtifactoryHandler.groovy --action 'upload' --artifact 'deploy-scripts.tar.gz' --domain '/com/dsv/ds/content/' --location '/home/timothy/Documents/DSV' --repository 'libs-content-test' --version '1.3.8' --web-server 'http://localhost:8081/' --userName 'admin' --password 'password'
 
 >Starting upload...
 
@@ -137,7 +137,7 @@ If an artifact which matches the domain/version/name already exists in the speci
 
 #### Example: Non Existing artifact
 
->groovy artifactoryHandler.groovy --action 'upload' --artifact 'deploy-scripts.tar.gz' --domain '/com/dsv/ds/content/' --location '/home/timothy/Documents/DSV' --repository 'libs-content-test' --version '1.4.1' --web-server 'http://localhost:8081/' --userName 'admin' --password 'password'
+>groovy ArtifactoryHandler.groovy --action 'upload' --artifact 'deploy-scripts.tar.gz' --domain '/com/dsv/ds/content/' --location '/home/timothy/Documents/DSV' --repository 'libs-content-test' --version '1.4.1' --web-server 'http://localhost:8081/' --userName 'admin' --password 'password'
 
 >Starting upload...
 
@@ -153,7 +153,7 @@ exists.
 
 #### Example: Unambiguous Artifact
 
->groovy artifactoryHandler.groovy --action 'download' --artifact 'deploy-scripts.tar.gz' --domain '/com/dsv/ds/content/' --repository 'libs-content-test' --version '1.3.4' --web-server 'http://localhost:8081/' --userName 'admin' --password 'password'
+>groovy ArtifactoryHandler.groovy --action 'download' --artifact 'deploy-scripts.tar.gz' --domain '/com/dsv/ds/content/' --repository 'libs-content-test' --version '1.3.4' --web-server 'http://localhost:8081/' --userName 'admin' --password 'password'
 
 >Starting download...
 
