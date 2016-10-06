@@ -89,10 +89,10 @@ function create_repo {
     # Fill repo with an empty
     if [ -d empty_repo ]; then
         cd empty_repo
-        git push ${bitbucket_url}/scm/tes/${_repo_name}.git master:master
-        git push ${bitbucket_url}/scm/tes/${_repo_name}.git master:stable
-        git push ${bitbucket_url}/scm/tes/${_repo_name}.git master:release
-        git push ${bitbucket_url}/scm/tes/${_repo_name}.git --tags
+        git push ${bitbucket_url}/scm/${_bitbucket_project}/${_repo_name}.git master:master
+        git push ${bitbucket_url}/scm/${_bitbucket_project}/${_repo_name}.git master:stable
+        git push ${bitbucket_url}/scm/${_bitbucket_project}/${_repo_name}.git master:release
+        git push ${bitbucket_url}/scm/${_bitbucket_project}/${_repo_name}.git --tags
         cd -
     fi
 }
