@@ -1,3 +1,7 @@
+---
+maintainer: buep
+---
+
 # code-utils
 Continuous Delivery utilities - small scripts and concepts used in continuous delivery setups.
 
