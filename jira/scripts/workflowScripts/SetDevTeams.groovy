@@ -51,26 +51,26 @@ LABELS.each {
         // Check that it iS an email channel, is the same key and has the label. Kind of overkill...
         def QUERY = KEY + issueMutable.getKey() + OPERATOR + FIELD + CONTAINS + QUOTE + ESCAPE + ESCAPE +
                 BRACKET_OPEN + LABEL + ESCAPE + ESCAPE + BRACKET_CLOSE + QUOTE + OPERATOR + CHANNEL
-        log.warn("--------------------")
-        log.warn("QUERY is: " + QUERY)
+        log.debug("--------------------")
+        log.debug("QUERY is: " + QUERY)
 
         // This should only return one item.
         def query = jqlQueryParser.parseQuery(QUERY)
         def results = searchProvider.search(query, user, PagerFilter.getUnlimitedFilter())
         if (results != null) {
-            log.warn("Find Option: " + LABEL)
+            log.debug("Find Option: " + LABEL)
             def option = optionsAvailable.find {it.value in LABEL}
             if (option != null) {
-                log.warn("Option to select: " + option)
+                log.debug("Option to select: " + option)
                 optionsToSelect.add(option)
             } else {
                 log.warn("LABEL: " + LABEL + " not found as an option! Check the custom field!")
             }
         }
-        log.warn("--------------------")
+        log.debug("--------------------")
     }
 }
 
-log.warn("These options will be selected" + optionsToSelect.toString())
+log.debug("These options will be selected" + optionsToSelect.toString())
 issueMutable.setCustomFieldValue(productCF,optionsToSelect)
 issueManager.updateIssue(user, issueMutable, EventDispatchOption.ISSUE_UPDATED, false)
