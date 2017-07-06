@@ -8,5 +8,10 @@ This script will create the following in BitBucket Server
   - can push mirror
 - configure the repository with branches restriction (e.g. who can push to which branch and tag pattern )
 
+Example call: 
+- `bitbucket_create_repo-branch-restrictions.sh <repo>`
+ 
+.. where `<repo>` can also be identical to a subdirectory 
+
 It demonstrates protecting of branches in the Praqma Git Flow model and multiple master branches in the same repository
 
