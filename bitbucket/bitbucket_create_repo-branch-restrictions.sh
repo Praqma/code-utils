@@ -82,25 +82,34 @@ function create_permission_set_semi-restricted {
 function create_repo {
     local _bitbucket_project=$1
     local _repo_name=$2
+    local _push_type=$3
     curl --fail -D- -u ${bitbucket_admin_user}:${bitbucket_admin_password} -X POST -H "Content-Type: application/json" ${bitbucket_url}/rest/api/1.0/projects/${_bitbucket_project}/repos -d "{ \"name\":\"${_repo_name}\", \"forkable\":false }"
 
     curl --fail -D- -u ${bitbucket_admin_user}:${bitbucket_admin_password} -X PUT   ${bitbucket_url}/rest/api/1.0/projects/${_bitbucket_project}/repos/${_repo_name}/settings/hooks/com.atlassian.bitbucket.server.bitbucket-bundled-hooks:force-push-hook/enabled
 
     # Fill repo with an empty
-    if [ -d empty_repo ]; then
-        cd empty_repo
-        git push ${bitbucket_url}/scm/${_bitbucket_project}/${_repo_name}.git master:master
-        git push ${bitbucket_url}/scm/${_bitbucket_project}/${_repo_name}.git master:stable
-        git push ${bitbucket_url}/scm/${_bitbucket_project}/${_repo_name}.git master:release
-        git push ${bitbucket_url}/scm/${_bitbucket_project}/${_repo_name}.git --tags
+    if [ -d ${_repo_name} ]; then
+        cd ${_repo_name}
+        if [ "${_push_type}X" == "--mirrorX" ]; then
+          git push ${bitbucket_url}/scm/${_bitbucket_project}/${_repo_name}.git ${_push_type}
+        else
+          git push ${bitbucket_url}/scm/${_bitbucket_project}/${_repo_name}.git master:master
+          git push ${bitbucket_url}/scm/${_bitbucket_project}/${_repo_name}.git master:stable
+          git push ${bitbucket_url}/scm/${_bitbucket_project}/${_repo_name}.git master:release
+          git push ${bitbucket_url}/scm/${_bitbucket_project}/${_repo_name}.git --tags
+        fi
         cd -
     fi
 }
 
 bitbucket_project="TES"
-repo_name="test_from_curl"
-create_repo $bitbucket_project $repo_name
-    create_permission_set_restricted "heads/*"   $bitbucket_admin_user $bitbucket_project $repo_name   # only admin creates new 'root' branches and 'name-spaces'
+if [ "${1}X" == "X" ] ; then
+  repo_names="test_from_curl" # space seperated list
+fi
+
+for repo_name in "${repo_names}"; do
+  create_repo ${bitbucket_project} ${repo_name} "--mirror"
+    create_permission_set_restricted "heads/*" $bitbucket_admin_user $bitbucket_project $repo_name   # only admin creates new 'root' branches and 'name-spaces'
 
     create_permission_set_restricted "heads/**/master"  $ci_user $bitbucket_project $repo_name
     create_permission_set_restricted "heads/**/stable"  $ci_user $bitbucket_project $repo_name
@@ -108,4 +117,4 @@ create_repo $bitbucket_project $repo_name
     create_permission_set_restricted "tags/**"          $ci_user $bitbucket_project $repo_name
 
     create_permission_set_semi-restricted "heads/**/ready/*" "" $bitbucket_project $repo_name
-
+done
