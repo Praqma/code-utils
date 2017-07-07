@@ -19,3 +19,16 @@ The analyzer find all files in the `pwd` and outputs:
   * fB: `file` tool reported other than 'ASCII text' or simular
  
 Usage: `git-workspace-file-type-analyzer.sh <dir>`
+
+# git-object-sizes-in-repo-analyzer.sh
+
+The objective is to analyze an already existing git repo for all files in whole history. Each file is listed as its entry/entries in the internal datastructure and their impact to the disc. For this reason the amount of revisions of a file does not correspond to the amount of entries in the output list. If each revision of a file is interesting this is also available.
+
+It is suppported that it is given a sub-dir-path in case of submodules.
+
+Interesting output file:
+* `bigtosmall_sorted_size_files.txt` ( for file impact in repository)
+* `bigtosmall_sorted_size_files_revisions.txt` ( each revision of a file in size order. NOTE: This list does not contains all files as these are only file revisions that have been pack further. This list does not show the impact to the repository directly - It should be found in `bigtosmall_sorted_size_files.txt` )
+
+Usage: `git-object-sizes-in-repo-analyzer.sh [<dir>]`
+
