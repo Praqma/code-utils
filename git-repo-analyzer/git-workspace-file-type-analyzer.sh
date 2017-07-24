@@ -36,6 +36,9 @@ IsGitBinary() {
 IsFileBinary() {
 	mime_type=`file ${1} | awk -F": " '{print $NF}'`
 
+	if [ "${mime_type}" == "empty" ] ; then
+		return 2
+	fi
 	if [[ ${mime_type} != *" text"* ]] ; then
 		return 0
 	fi
@@ -74,7 +77,7 @@ SAVEIFS=$IFS
 IFS=$(echo -en "\n\b")
 
 printf "Files to investigate: "
-find . -name '*.*' -o -name '*' -a -type f | grep -v '.git/' | grep -v '.git$' | grep -v '^.$' > ${root_folder}/files_found.txt
+find . ! -type d | grep -v '.git/' | grep -v '.git$' | grep -v '^.$' > ${root_folder}/files_found.txt
 cat ${root_folder}/files_found.txt | wc -l
 for filename in `cat ${root_folder}/files_found.txt` ; do
 	basename=`basename ${filename}`
@@ -107,9 +110,13 @@ for filename in `cat ${root_folder}/files_found.txt` ; do
 
 	printf "    File: "
 	IsFileBinary "$filename"
-	if [ "$?" -eq "0" ] ; then
+	result=$?
+	if [ "$result" -eq "0" ] ; then
 		printf "fB: ${mime_type}\n"
 		verdict="${verdict}fB"
+	elif [ "$result" -eq "2" ] ; then
+		printf "fE: ${mime_type}\n"
+		verdict="${verdict}fE"
 	else
 		printf "fA: ${mime_type}\n"
 		verdict="${verdict}fA"
@@ -133,6 +140,7 @@ echo "Combined 'file' and 'git' investigation of. Size is in Kb. Last informatio
 echo "gA: Git ascii"										>> ${root_folder}/verdict_size_sorted.txt
 echo "gB: Git binary"										>> ${root_folder}/verdict_size_sorted.txt
 echo "fA: 'file' tool reported 'ASCII text'"				>> ${root_folder}/verdict_size_sorted.txt
+echo "fE: 'file' tool reported it as 'empty'"	            >> ${root_folder}/verdict_size_sorted.txt
 echo "fB: 'file' tool reported other than 'ASCII text'"		>> ${root_folder}/verdict_size_sorted.txt
 echo "------------------------------------------------"		>> ${root_folder}/verdict_size_sorted.txt
 
