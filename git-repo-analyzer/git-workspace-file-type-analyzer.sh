@@ -1,6 +1,11 @@
 
 
 root_folder=`pwd`
+
+if [ "${1}X" == "X" ]; then
+  echo "Please specify a folder as the first parameter to analyze.. "
+  exit 1
+fi
 git_folder=$1
 
 export PATH=/cygdrive/c/Program\ Files\ \(x86\)/Git/bin:${PATH}
