@@ -15,18 +15,29 @@ export PATH=/c/Program\ Files/Git/mingw64/bin/:${PATH}
 
 export PATH=/c/Cygwin/bin:${PATH}
 export PATH=/usr/bin:${PATH}
-set -x
+
 
 which find
 which sort
 
 echo $PATH
 if [ "${WORKSPACE}X" == "X" ]; then
-  export WORKSPACE="."
+  export WORKSPACE=`pwd`
 fi
+if [ "${1}x" != "x" ]; then
+  test -e ${1} && cd ${1}
+fi
+echo
+echo "Analyzing git in: `pwd` "
+echo "Saving outfiles in: ${WORKSPACE}"
+echo
 
-rm -rf *.txt
+set -x
 set -u
+
+rm -f ${WORKSPACE}/bigtosmall_*.txt
+rm -f ${WORKSPACE}/bigobjects*.txt
+rm -f ${WORKSPACE}/allfileshas*.txt
 
 if [ -d .git ]; then
   export pack_dir=".git/objects"
@@ -60,7 +71,7 @@ for file in `cat ${WORKSPACE}/bigtosmall_join.txt | awk -F " " '{print $3}'` ; d
 done
 
 for file in `cat ${WORKSPACE}/bigtosmall_join_uniq.txt` ; do
-	grep -e " ${file}$" ${WORKSPACE}/bigtosmall_join.txt >> ${WORKSPACE}/bigtosmall_sorted_size_files.txt || echo "ERROR: $file: something went wrong" >> errors.txt
+	grep -e " ${file}$" ${WORKSPACE}/bigtosmall_join.txt >> ${WORKSPACE}/bigtosmall_sorted_size_files.txt || echo "ERROR: $file: something went wrong" >> ${WORKSPACE}/bigtosmall_errors.txt
 done
 
 touch ${WORKSPACE}/bigtosmall_revisions_join_uniq.txt
@@ -69,5 +80,5 @@ for file in `cat ${WORKSPACE}/bigtosmall_revisions_join.txt | awk -F " " '{print
 done
 
 for file in `cat ${WORKSPACE}/bigtosmall_revisions_join_uniq.txt ` ; do
-	grep -e " ${file}$" ${WORKSPACE}/bigtosmall_revisions_join.txt >> ${WORKSPACE}/bigtosmall_sorted_size_files_revisions.txt || echo "ERROR: $file: something went wrong" >> errors_revision.txt
+	grep -e " ${file}$" ${WORKSPACE}/bigtosmall_revisions_join.txt >> ${WORKSPACE}/bigtosmall_sorted_size_files_revisions.txt || echo "ERROR: $file: something went wrong" >> ${WORKSPACE}/bigtosmall_errors_revision.txt
 done

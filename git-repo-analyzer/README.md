@@ -17,7 +17,8 @@ The analyzer find all files in the `pwd` and outputs:
   * gB: Git binary 
   * fA: `file` tool reported 'ASCII text' or simular
   * fB: `file` tool reported other than 'ASCII text' or simular
- 
+  * fE: `file` tool reported 'empty'
+
 Usage: `git-workspace-file-type-analyzer.sh <dir>`
 
 # git-object-sizes-in-repo-analyzer.sh
@@ -26,9 +27,11 @@ The objective is to analyze an already existing git repo for all files in whole 
 
 It is suppported that it is given a sub-dir-path in case of submodules.
 
+It is designed to be executed from a Jenkins Freestyle or Matrix job and it stores the output files in the WORKSPACE variable dir. WORKSPACE should be absolute path. If not set, it store them in "."
+
 Interesting output file:
 * `bigtosmall_sorted_size_files.txt` ( for file impact in repository)
 * `bigtosmall_sorted_size_files_revisions.txt` ( each revision of a file in size order. NOTE: This list does not contains all files as these are only file revisions that have been pack further. This list does not show the impact to the repository directly - It should be found in `bigtosmall_sorted_size_files.txt` )
 
-Usage: `git-object-sizes-in-repo-analyzer.sh [<dir>]`
+Usage: `[WORKSPACE=`<absolute-path>`] git-object-sizes-in-repo-analyzer.sh [<dir>]`
 
