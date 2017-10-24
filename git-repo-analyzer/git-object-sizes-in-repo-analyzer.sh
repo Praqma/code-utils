@@ -49,7 +49,8 @@ else
   du -sh .
 fi
 
-git gc
+git reflog expire --all --expire=now
+git gc --prune=now --aggressive
 
 git rev-list --objects --all | sort -k 2 | sed -e 's/ /@/g' -e 's/@/ /' -e 's/(//g' -e 's/)//g'  > ${WORKSPACE}/allfileshas.txt
 cat ${WORKSPACE}/allfileshas.txt| cut -f 2 -d\  | uniq > ${WORKSPACE}/allfileshas_uniq.txt
