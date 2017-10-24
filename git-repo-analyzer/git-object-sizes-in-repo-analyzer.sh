@@ -66,19 +66,29 @@ join <(sort ${WORKSPACE}/bigobjects.txt) <(sort ${WORKSPACE}/allfileshas.txt) | 
 join <(sort ${WORKSPACE}/bigobjects_revisions.txt) <(sort ${WORKSPACE}/allfileshas.txt) | sort -k 3 -n -r | cut -f 1,3,6- -d \ > ${WORKSPACE}/bigtosmall_revisions_join.txt
 
 touch ${WORKSPACE}/bigtosmall_join_uniq.txt
+set +x
 for file in `cat ${WORKSPACE}/bigtosmall_join.txt | awk -F " " '{print $3}'` ; do
   grep -e "^${file}$" ${WORKSPACE}/bigtosmall_join_uniq.txt || echo $file >> ${WORKSPACE}/bigtosmall_join_uniq.txt
 done
+set -x 
 
+touch ${WORKSPACE}/bigtosmall_errors.txt
+set +x
 for file in `cat ${WORKSPACE}/bigtosmall_join_uniq.txt` ; do
 	grep -e " ${file}$" ${WORKSPACE}/bigtosmall_join.txt >> ${WORKSPACE}/bigtosmall_sorted_size_files.txt || echo "ERROR: $file: something went wrong" >> ${WORKSPACE}/bigtosmall_errors.txt
 done
+set -x
 
 touch ${WORKSPACE}/bigtosmall_revisions_join_uniq.txt
+set +x
 for file in `cat ${WORKSPACE}/bigtosmall_revisions_join.txt | awk -F " " '{print $3}'` ; do
   grep -e "^${file}$" ${WORKSPACE}/bigtosmall_revisions_join_uniq.txt || echo $file >> ${WORKSPACE}/bigtosmall_revisions_join_uniq.txt
 done
+set -x
 
+touch ${WORKSPACE}/bigtosmall_errors_revision.txt
+set +x
 for file in `cat ${WORKSPACE}/bigtosmall_revisions_join_uniq.txt ` ; do
-	grep -e " ${file}$" ${WORKSPACE}/bigtosmall_revisions_join.txt >> ${WORKSPACE}/bigtosmall_sorted_size_files_revisions.txt || echo "ERROR: $file: something went wrong" >> ${WORKSPACE}/bigtosmall_errors_revision.txt
+  grep -e " ${file}$" ${WORKSPACE}/bigtosmall_revisions_join.txt >> ${WORKSPACE}/bigtosmall_sorted_size_files_revisions.txt || echo "ERROR: $file: something went wrong" >> ${WORKSPACE}/bigtosmall_errors_revision.txt
 done
+set -x
