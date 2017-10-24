@@ -41,16 +41,16 @@ rm -f ${WORKSPACE}/allfileshas*.txt
 
 if [ -d .git ]; then
   export pack_dir=".git/objects"
-  du -sh .git
 else
   gitdir=`cat .git | awk -F ": " '{print $2}'`
   cd $gitdir
   export pack_dir="./objects"
-  du -sh .
 fi
 
+du -sh .git
 git reflog expire --all --expire=now
 git gc --prune=now --aggressive
+du -sh .git
 
 git rev-list --objects --all | sort -k 2 | sed -e 's/ /@/g' -e 's/@/ /' -e 's/(//g' -e 's/)//g'  > ${WORKSPACE}/allfileshas.txt
 cat ${WORKSPACE}/allfileshas.txt| cut -f 2 -d\  | uniq > ${WORKSPACE}/allfileshas_uniq.txt
