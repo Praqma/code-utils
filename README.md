@@ -88,6 +88,9 @@ See https://github.com/Praqma/file-pattern-scanner
 ### Artifactory Handler
 Simple script to interface to Artifactory's REST API. See the [README](artifactoryHandler/README.md) in the artifactoryHandler directory.
 
+### BitBucket
+Collection of scripts for interacting with BitBucket. Initially for creating repositositories (push) and configure them with branch permissions etc. Add further scripts as developed. [README](bitbucket/README.md)
+
 ## Proposed usage
 
 I'm planning to use the code-utils as a git submodule in other projects, so I have a firm dependency management.
