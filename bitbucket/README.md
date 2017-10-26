@@ -8,10 +8,19 @@ This script will create the following in BitBucket Server
   - can push mirror
 - configure the repository with branches restriction (e.g. who can push to which branch and tag pattern )
 
-Example call: 
-- `bitbucket_create_repo-branch-restrictions.sh <repo>`
+Prework:
+- Modify the `.netrc` file or create your own
+- Modify the `bitbucket/bitbucket_create_repo-branch-restrictions.sh`
+  - `bitbucket_admin_group="bitbucket-sys-admins"`
+  - `bitbucket_url="https://localhost:7990"`
+  - `ci_user="jenkins"`
+
+Example call:
+- `bitbucket_create_repo-branch-restrictions.sh <bitbucket-project> <repo> [./.netrc|<your-own-file>]`
  
-.. where `<repo>` can also be identical to a subdirectory 
+.. where `<repo>` can also be identical to a subdirectory that will be pushed
 
-It demonstrates protecting of branches in the Praqma Git Flow model and multiple master branches in the same repository
+It demonstrates protecting of branches in the Praqma Git Phlow model and multiple master branches in the same repository
 
+TODO:
+- Parameterize the needed `Prework` modifications
