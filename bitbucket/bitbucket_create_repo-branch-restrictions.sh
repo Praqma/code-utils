@@ -14,7 +14,7 @@ fi
 if [ "${2}X" == "X" ] ; then
   repo_names="test_from_curl" # space seperated list
 else
-  repo_names=${2} # space seperated list
+  repo_names="${2}" # space seperated list
 fi
 
 if [ "${3}X" == "X" ] ; then
@@ -24,8 +24,8 @@ else
 fi
 
 bitbucket_admin_group="bitbucket-sys-admins"
-bitbucket_url="https://localhost:7990"
-ci_user="jenkins"
+bitbucket_url="https://git-unisource.md-man.biz:7990"
+ci_user="c2440bm1"
 
 curl_PUT_cmd="curl --fail -D- --insecure --netrc-file ${netrc_file} -X PUT"
 curl_POST_cmd="curl --fail -D- --insecure --netrc-file ${netrc_file} -X POST -H Content-Type:application/json"
@@ -132,7 +132,7 @@ function create_permission_set_restricted_groups {
     rm bitbucket_branch_permissions.json
 }
 
-function create_permission_set_semi-restricted {
+function create_permission_set_rewrite_history {
     local _branch_pattern=$1
     local _user=$2
     local _bitbucket_project=$3
@@ -144,6 +144,20 @@ function create_permission_set_semi-restricted {
     rm bitbucket_branch_permissions.json
 }
 
+function create_permission_set_rewrite_history_deletion {
+    local _branch_pattern=$1
+    local _group=$2
+    local _bitbucket_project=$3
+    local _repo_name=$4
+
+    generate_restriction_json fast-forward-only "${_branch_pattern}" "" > bitbucket_branch_permissions.json
+    ${curl_POST_cmd} ${bitbucket_url}/rest/branch-permissions/2.0/projects/${_bitbucket_project}/repos/${_repo_name}/restrictions --upload-file bitbucket_branch_permissions.json
+
+    generate_restriction_json_groups no-deletes "${_branch_pattern}" $_group > bitbucket_branch_permissions.json
+    ${curl_POST_cmd} ${bitbucket_url}/rest/branch-permissions/2.0/projects/${_bitbucket_project}/repos/${_repo_name}/restrictions --upload-file bitbucket_branch_permissions.json
+
+    rm bitbucket_branch_permissions.json
+}
 function create_repo {
     local _bitbucket_project=$1
     local _repo_name=$2
@@ -159,8 +173,8 @@ function create_repo {
           git push ${bitbucket_url}/scm/${_bitbucket_project}/${_repo_name}.git ${_push_type}
         else
           git push ${bitbucket_url}/scm/${_bitbucket_project}/${_repo_name}.git master:master
-          git push ${bitbucket_url}/scm/${_bitbucket_project}/${_repo_name}.git master:stable
-          git push ${bitbucket_url}/scm/${_bitbucket_project}/${_repo_name}.git master:release
+          git push ${bitbucket_url}/scm/${_bitbucket_project}/${_repo_name}.git master:stable || echo "Skipped"
+          git push ${bitbucket_url}/scm/${_bitbucket_project}/${_repo_name}.git master:release || echo "Skipped"
           git push ${bitbucket_url}/scm/${_bitbucket_project}/${_repo_name}.git --tags
         fi
         cd -
@@ -168,8 +182,13 @@ function create_repo {
 }
 
 
-for repo_name in "${repo_names}"; do
-  create_repo ${bitbucket_project} ${repo_name} "--mirror"
+for repo_name in $(echo ${repo_names} | sed -e 's/,/ /g'); do
+  set +x
+  echo "#################################################################"
+  echo " START: $repo_name "
+  echo "#################################################################"
+  set -x
+  # create_repo ${bitbucket_project} ${repo_name} "--mirror"
 
   create_permission_set_restricted_groups "heads/*" "$bitbucket_admin_group" $bitbucket_project $repo_name   # only admin creates new 'root' branches and 'name-spaces'
 
@@ -178,5 +197,12 @@ for repo_name in "${repo_names}"; do
   create_permission_set_restricted "heads/**/release" $ci_user $bitbucket_project $repo_name
   create_permission_set_restricted "tags/**"          $ci_user $bitbucket_project $repo_name
 
-  create_permission_set_semi-restricted "heads/**/ready/*" "" $bitbucket_project $repo_name
+  create_permission_set_rewrite_history "heads/**/ready/*" "" $bitbucket_project $repo_name
+  create_permission_set_rewrite_history "heads/**/dev/*" "" $bitbucket_project $repo_name
+  create_permission_set_rewrite_history_deletion "heads/**/feature/*" $bitbucket_admin_group $bitbucket_project $repo_name
+  set +x
+  echo "#################################################################"
+  echo " DONE: $repo_name "
+  echo "#################################################################"
+  set -x
 done

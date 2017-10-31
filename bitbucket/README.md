@@ -16,9 +16,9 @@ Prework:
   - `ci_user="jenkins"`
 
 Example call:
-- `bitbucket_create_repo-branch-restrictions.sh <bitbucket-project> <repo> [./.netrc|<your-own-file>]`
+- `bitbucket_create_repo-branch-restrictions.sh <bitbucket-project> <repo(s)> [./.netrc|<your-own-file>]`
  
-.. where `<repo>` can also be identical to a subdirectory that will be pushed
+.. where `<repo(s)>` can also be identical to a subdirectory that will be pushed. More than one are then comma separated.
 
 It demonstrates protecting of branches in the Praqma Git Phlow model and multiple master branches in the same repository
 
