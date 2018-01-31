@@ -49,7 +49,7 @@ fi
 
 du -sh .git
 git reflog expire --all --expire=now
-git repack -a -d -f --depth=250 --window=250
+git repack -a -d --depth=50 --window=20 -f
 du -sh .git
 
 git rev-list --objects --all | sort -k 2 | sed -e 's/ /@/g' -e 's/@/ /' -e 's/(//g' -e 's/)//g'  > ${WORKSPACE}/allfileshas.txt
