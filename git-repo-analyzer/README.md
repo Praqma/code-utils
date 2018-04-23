@@ -35,3 +35,9 @@ Interesting output file:
 
 Usage: `[WORKSPACE=`<absolute-path>`] git-object-sizes-in-repo-analyzer.sh [<dir>]`
 
+# git-sizer (external tool)
+In combination with the above tools for deep analysis on object level it could also be interesting to get a overview of the stats of the repository. It is also advised to read the recommandations for working with git repositories.
+
+https://github.com/github/git-sizer
+
+
