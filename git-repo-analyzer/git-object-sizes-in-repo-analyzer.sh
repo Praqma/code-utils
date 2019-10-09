@@ -47,6 +47,9 @@ else
   export pack_dir="./objects"
 fi
 
+[[ -d .git/objects ]] && du -sh .git/objects
+[[ -d .git/lfs ]] && du -sh .git/lfs
+[[ -d .git/modules ]] && du -sh .git/modules
 du -sh .git
 git reflog expire --all --expire=now
 git repack -a -d --depth=50 --window=20 -f
