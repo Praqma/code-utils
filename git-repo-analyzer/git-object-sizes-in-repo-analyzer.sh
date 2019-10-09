@@ -55,7 +55,8 @@ du -sh .git
 
 git reflog expire --all --expire=now
 git repack -a -d --depth=50 --window=20 -f
-git gc
+git gc --prune --aggressive
+git prune
 
 [[ -d .git/objects ]] && du -sh .git/objects
 du -sh .git
