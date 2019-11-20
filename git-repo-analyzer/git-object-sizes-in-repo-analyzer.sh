@@ -53,10 +53,10 @@ fi
 [[ -d .git/modules ]] && du -sh .git/modules
 du -sh .git
 
+# reference: https://stackoverflow.com/questions/28720151/git-gc-aggressive-vs-git-repack
 git reflog expire --all --expire=now
-git repack -a -d --depth=50 --window=20 -f
-git gc --prune --aggressive
-git prune
+git repack -a -d --depth=250 --window=250 -f || git repack -a -d --depth=250 --window=250 # if fails - accept to use old deltas
+git gc --prune
 
 [[ -d .git/objects ]] && du -sh .git/objects
 du -sh .git
