@@ -55,7 +55,7 @@ du -sh .git
 
 # reference: https://stackoverflow.com/questions/28720151/git-gc-aggressive-vs-git-repack
 git reflog expire --all --expire=now
-git repack -a -d --depth=250 --window=250 -f || git repack -a -d --depth=250 --window=250 # if fails - accept to use old deltas
+git repack -a -d --depth=250 --window=250 # accept to use old deltas - add "-f" option to not reuse old deltas for large repos it fails often
 git gc --prune
 
 [[ -d .git/objects ]] && du -sh .git/objects
