@@ -107,7 +107,7 @@ printf "\n\n"
 
 echo "Investigate blobs that are packed in revisions in idx file: ${pack_file}"
 grep -E "^\w+ blob\W+[0-9]+ [0-9]+ [0-9]+ [0-9]+" "${WORKSPACE}/verify_pack.txt" | awk -F" " '{print $1,$2,$3,$4,$5}' > "${WORKSPACE}/bigobjects_revisions.txt"
-printf "Amount of objects: %s\n" $(wc -l < "${WORKSPACE}/bigtosmall_revisions_join_uniq.txt")
+printf "Amount of objects: %s\n" $(wc -l < "${WORKSPACE}/bigobjects_revisions.txt")
 join <(sort "${WORKSPACE}/bigobjects_revisions.txt") <(sort "${WORKSPACE}/allfileshas.txt") | sort -k 3 -n -r | cut -f 1,3,6- -d ' '  > "${WORKSPACE}/bigtosmall_revisions_join.txt"
 
 touch "${WORKSPACE}/bigtosmall_revisions_join_uniq.txt"
