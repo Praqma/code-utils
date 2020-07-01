@@ -3,11 +3,10 @@
 set -e
 set -u 
 
-[[ ${debug:-} ]] && set -x
+[[ ${debug:-} == true ]] && set -x
 
-[[ ${repack:-} == "" ]] && repack=true
+[[ ${repack:-} == "" ]] && repack=false
 
-set +x
 export PATH=/cygdrive/c/Program\ Files\ \(x86\)/Git/bin:${PATH}
 export PATH=/cygdrive/c/Cygwin/bin:${PATH}
 
@@ -21,18 +20,20 @@ export PATH=/c/Cygwin/bin:${PATH}
 export PATH=/usr/bin:${PATH}
 
 
-which find
-which sort
+if [[ ${debug:-} == true ]]; then
+  command -v find
+  command -v sort
 
-echo $PATH
+  printf "PATH:\n%s\n" "${PATH}"
+fi
 if [[ "${WORKSPACE:-}" == "" ]]; then
-  export WORKSPACE=`pwd`
+  export WORKSPACE=$(pwd)
 fi
 if [[ "${1:-}" != "" ]]; then
   test -e ${1} && cd ${1}
 fi
 echo
-echo "Analyzing git in: `pwd` "
+echo "Analyzing git in: $(pwd) "
 echo "Saving outfiles in: ${WORKSPACE}"
 echo
 
@@ -48,88 +49,90 @@ else
   export pack_dir="./objects"
 fi
 
-# List sizes before 
-[[ -d .git/objects ]] && du -sh .git/objects
-[[ -d .git/lfs ]] && du -sh .git/lfs
-[[ -d .git/modules ]] && du -sh .git/modules
-du -sh .git
-
 if [[ ${repack} == "true" ]]; then
+  echo "git repo and object sizes before repack:"
+  du -sh .git
+  [[ -d .git/objects ]] && du -sh .git/objects
   # reference: https://stackoverflow.com/questions/28720151/git-gc-aggressive-vs-git-repack
   git reflog expire --all --expire=now
   git repack -a -d --depth=250 --window=250 # accept to use old deltas - add "-f" option to not reuse old deltas for large repos it fails often
   git gc --prune
+  echo "git repo and object sizes after repack:"
+  [[ -d .git/objects ]] && du -sh .git/objects
+  du -sh .git
+else
+  echo "git repo and object sizes:"
+  du -sh .git
+  [[ -d .git/objects ]] && du -sh .git/objects
 fi
 
-[[ -d .git/objects ]] && du -sh .git/objects
-du -sh .git
+if [[ -d .git/lfs ]] ; then
+  du -sh .git/lfs
+else
+  echo ".git/lfs is not present"
+fi
+if [[ -d .git/modules ]]  ; then
+  du -sh .git/modules
+else
+  echo ".git/modules is not present"
+fi
 
-git rev-list --objects --all  > ${WORKSPACE}/allfileshas.txt
-cat ${WORKSPACE}/allfileshas.txt| cut -d ' ' -f 2-  | uniq > ${WORKSPACE}/allfileshas_uniq.txt
+git rev-list --objects --all  > "${WORKSPACE}/allfileshas.txt"
+cat "${WORKSPACE}/allfileshas.txt"| cut -d ' ' -f 2-  | uniq > ${WORKSPACE}/allfileshas_uniq.txt
 
 export pack_file=$(find ${pack_dir} -name '*.idx')
+echo
+echo "Run verify-pack to list all objects in idx"
+git verify-pack -v ${pack_file} > "${WORKSPACE}/verify_pack.txt"
+echo "Done"
 
-echo "START: Investigate blobs that are directly stored in idx file: ${pack_file}"
-git verify-pack -v ${pack_file} | egrep "^\w+ blob\W+[0-9]+ [0-9]+ [0-9]+$" | awk -F" " '{print $1,$2,$3,$4,$5}' > ${WORKSPACE}/bigobjects.txt
-
-join <(sort ${WORKSPACE}/bigobjects.txt) <(sort ${WORKSPACE}/allfileshas.txt) | sort -k 3 -n -r | cut -f 1,3,6-  -d ' ' > ${WORKSPACE}/bigtosmall_join.txt
-
-touch ${WORKSPACE}/bigtosmall_join_uniq.txt
-#set +x
-#IFS=$'\r\n'
-#for file in `cat ${WORKSPACE}/bigtosmall_join.txt | cut -d ' ' -f 3- ` ; do
-#  grep -e "^${file}$" ${WORKSPACE}/bigtosmall_join_uniq.txt > /dev/null || echo $file >> ${WORKSPACE}/bigtosmall_join_uniq.txt
-#done
-#set -x 
-cat ${WORKSPACE}/bigtosmall_join.txt | cut -d ' ' -f 3- | /usr/bin/uniq >> ${WORKSPACE}/bigtosmall_join_uniq.txt
-
-set +x
-echo "Generate file sorted list:"
-touch ${WORKSPACE}/bigtosmall_errors.txt
-IFS=$'\r\n'
-for file in `cat ${WORKSPACE}/bigtosmall_join_uniq.txt` ; do
-	printf "."
-	grep -e " ${file}$" ${WORKSPACE}/bigtosmall_join.txt >> ${WORKSPACE}/bigtosmall_sorted_size_files.txt || echo "ERROR: $file: something went wrong" >> ${WORKSPACE}/bigtosmall_errors.txt
-done
 printf "\n"
-echo "DONE: Investigate blobs that are directly stored in idx file: ${pack_file}"
-set -x
+echo "Investigate blobs that are directly stored in idx file: ${pack_file}"
+grep -E "^\w+ blob\W+[0-9]+ [0-9]+ [0-9]+$" "${WORKSPACE}/verify_pack.txt" | awk -F" " '{print $1,$2,$3,$4,$5}' > "${WORKSPACE}/bigobjects.txt"
+printf "Amount of objects: %s\n" $(wc -l < "${WORKSPACE}/bigobjects.txt")
+join <(sort "${WORKSPACE}/bigobjects.txt") <(sort "${WORKSPACE}/allfileshas.txt") | sort -k 3 -n -r | cut -f 1,3,6-  -d ' ' > "${WORKSPACE}/bigtosmall_join.txt"
 
-echo "START: Investigate blobs that are packed in revisions in idx file: ${pack_file}"
-git verify-pack -v ${pack_file} | egrep "^\w+ blob\W+[0-9]+ [0-9]+ [0-9]+ [0-9]+" | awk -F" " '{print $1,$2,$3,$4,$5}' > ${WORKSPACE}/bigobjects_revisions.txt
-join <(sort ${WORKSPACE}/bigobjects_revisions.txt) <(sort ${WORKSPACE}/allfileshas.txt) | sort -k 3 -n -r | cut -f 1,3,6- -d ' '  > ${WORKSPACE}/bigtosmall_revisions_join.txt
-touch ${WORKSPACE}/bigtosmall_revisions_join_uniq.txt
+touch "${WORKSPACE}/bigtosmall_join_uniq.txt"
+cat "${WORKSPACE}/bigtosmall_join.txt" |  cut -d ' ' -f 3- > ${WORKSPACE}/bigtosmall_join_all.txt
+cat -n ${WORKSPACE}/bigtosmall_join_all.txt | /usr/bin/sort -uk2 | /usr/bin/sort -n | cut -f2- > "${WORKSPACE}/bigtosmall_join_uniq.txt"
+printf "Amount of unique <path>/<file>: %s\n" $(wc -l < "${WORKSPACE}/bigtosmall_join_uniq.txt")
 
-#set +x
-#IFS=$'\r\n'
-#for file in `cat ${WORKSPACE}/bigtosmall_revisions_join.txt | cut -d ' ' -f 3- ` ; do
-#  grep -e "^${file}$" ${WORKSPACE}/bigtosmall_revisions_join_uniq.txt > /dev/null || echo $file >> ${WORKSPACE}/bigtosmall_revisions_join_uniq.txt
-#done
-#set -x
-cat ${WORKSPACE}/bigtosmall_revisions_join.txt | cut -d ' ' -f 3- | /usr/bin/uniq >> ${WORKSPACE}/bigtosmall_revisions_join_uniq.txt
-
-set +x
 echo "Generate file sorted list:"
-touch ${WORKSPACE}/bigtosmall_errors_revision.txt
-IFS=$'\r\n'
-for file in `cat ${WORKSPACE}/bigtosmall_revisions_join_uniq.txt ` ; do
+touch "${WORKSPACE}/bigtosmall_errors.txt"
+while read -r file; do
 	printf "."
-    grep -e " ${file}$" ${WORKSPACE}/bigtosmall_revisions_join.txt >> ${WORKSPACE}/bigtosmall_sorted_size_files_revisions.txt || echo "ERROR: $file: something went wrong" >> ${WORKSPACE}/bigtosmall_errors_revision.txt
-done
-printf "\n"
-echo "DONE: Investigate blobs that are packed in revisions in idx file: ${pack_file}"
-set -x
+	grep -e " ${file}$" "${WORKSPACE}/bigtosmall_join.txt" >> "${WORKSPACE}/bigtosmall_sorted_size_files.txt" || echo "ERROR: $file: something went wrong" >> "${WORKSPACE}/bigtosmall_errors.txt"
+done < "${WORKSPACE}/bigtosmall_join_uniq.txt"
+printf "\n\n"
 
+echo "Investigate blobs that are packed in revisions in idx file: ${pack_file}"
+grep -E "^\w+ blob\W+[0-9]+ [0-9]+ [0-9]+ [0-9]+" "${WORKSPACE}/verify_pack.txt" | awk -F" " '{print $1,$2,$3,$4,$5}' > "${WORKSPACE}/bigobjects_revisions.txt"
+printf "Amount of objects: %s\n" $(wc -l < "${WORKSPACE}/bigtosmall_revisions_join_uniq.txt")
+join <(sort "${WORKSPACE}/bigobjects_revisions.txt") <(sort "${WORKSPACE}/allfileshas.txt") | sort -k 3 -n -r | cut -f 1,3,6- -d ' '  > "${WORKSPACE}/bigtosmall_revisions_join.txt"
 
-echo "START: Investigate if issues occured"
-set +x
-if [[ ! `cat ${WORKSPACE}/bigtosmall_errors.txt` == ""  ]]; then
+touch "${WORKSPACE}/bigtosmall_revisions_join_uniq.txt"
+cat "${WORKSPACE}/bigtosmall_revisions_join.txt" |  cut -d ' ' -f 3- > "${WORKSPACE}/bigtosmall_revisions_join_all.txt"
+cat -n "${WORKSPACE}/bigtosmall_revisions_join_all.txt" | /usr/bin/sort -uk2 | /usr/bin/sort -n | cut -f2- > "${WORKSPACE}/bigtosmall_revisions_join_uniq.txt"
+printf "Amount of unique <path>/<file>: %s\n" $(wc -l < "${WORKSPACE}/bigtosmall_revisions_join_uniq.txt")
+
+echo "Generate file sorted list:"
+touch "${WORKSPACE}/bigtosmall_errors_revision.txt"
+while read -r file; do
+	printf "."
+  grep -e " ${file}$" "${WORKSPACE}/bigtosmall_revisions_join.txt" >> ${WORKSPACE}/bigtosmall_sorted_size_files_revisions.txt || echo "ERROR: $file: something went wrong" >> "${WORKSPACE}/bigtosmall_errors_revision.txt"
+done < "${WORKSPACE}/bigtosmall_revisions_join_uniq.txt"
+printf "\n\n"
+
+echo "Investigate if issues occured"
+if [[ ! -s "${WORKSPACE}/bigtosmall_errors.txt"  ]]; then
   echo "There are errors during analyzing the files: ${WORKSPACE}/bigtosmall_errors.txt"
-  ${WORKSPACE}/bigtosmall_errors.txt | uniq
+  /usr/bin/sort -u "${WORKSPACE}/bigtosmall_errors.txt"
+else
+  echo ".. no issues in ${WORKSPACE}/bigtosmall_errors.txt"
 fi
-if [[ ! `cat ${WORKSPACE}/bigtosmall_errors_revision.txt` == ""  ]]; then
+if [[ ! -s "${WORKSPACE}/bigtosmall_errors_revision.txt" ]]; then
   echo "There are errors during analyzing the files: ${WORKSPACE}/bigtosmall_errors_revision.txt"
-  cat ${WORKSPACE}/bigtosmall_errors_revision.txt | uniq
+  /usr/bin/sort -u "${WORKSPACE}/bigtosmall_errors_revision.txt"
+else
+  echo ".. no issues in ${WORKSPACE}/bigtosmall_errors_revision.txt"
 fi
-set -x
-echo "DONE: Investigate if issues occured"
