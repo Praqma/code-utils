@@ -77,6 +77,17 @@ else
   echo ".git/modules is not present"
 fi
 
+echo "Reading HEAD blobs.."
+declare -A head_blobs_map
+while read -r head_blob_line; do
+  head_blob_line_array=($head_blob_line)
+  head_blob=${head_blob_line_array[0]}
+  head_file=${head_blob_line_array[1]}
+  head_blobs_map["${head_blob}"]="${head_file}"
+  printf "."
+done < <( git ls-tree -r HEAD| cut -f 3 -d ' '  )
+echo
+
 git rev-list --objects --all  > "${WORKSPACE}/allfileshas.txt"
 cat "${WORKSPACE}/allfileshas.txt"| cut -d ' ' -f 2-  | uniq > ${WORKSPACE}/allfileshas_uniq.txt
 
@@ -101,7 +112,15 @@ echo "Generate file sorted list:"
 touch "${WORKSPACE}/bigtosmall_errors.txt"
 while read -r file; do
 	printf "."
-	grep -e " ${file}$" "${WORKSPACE}/bigtosmall_join.txt" >> "${WORKSPACE}/bigtosmall_sorted_size_files.txt" || echo "ERROR: $file: something went wrong" >> "${WORKSPACE}/bigtosmall_errors.txt"
+  while read -r blob size path_file ; do
+    [[ $file != $path_file ]] && exit 10
+    prefix=" "
+    if [[ "${head_blobs_map[${blob}]:-}" == "$path_file" ]]; then
+      prefix="H"
+    fi
+    echo "$prefix $blob $size $path_file" >> "${WORKSPACE}/bigtosmall_sorted_size_files.txt"
+  done < <(grep -e " ${file}$" "${WORKSPACE}/bigtosmall_join.txt" || echo "ERROR: $file: something went wrong" >> "${WORKSPACE}/bigtosmall_errors.txt" )
+
 done < "${WORKSPACE}/bigtosmall_join_uniq.txt"
 printf "\n\n"
 
@@ -119,7 +138,14 @@ echo "Generate file sorted list:"
 touch "${WORKSPACE}/bigtosmall_errors_revision.txt"
 while read -r file; do
 	printf "."
-  grep -e " ${file}$" "${WORKSPACE}/bigtosmall_revisions_join.txt" >> ${WORKSPACE}/bigtosmall_sorted_size_files_revisions.txt || echo "ERROR: $file: something went wrong" >> "${WORKSPACE}/bigtosmall_errors_revision.txt"
+  while read -r blob size path_file ; do
+    [[ $file != $path_file ]] && exit 10
+    prefix=" "
+    if [[ "${head_blobs_map[${blob}]:-}" == "$file" ]]; then
+      prefix="H"
+    fi
+    echo "$prefix $blob $size $path_file" >> "${WORKSPACE}/bigtosmall_sorted_size_files_revisions.txt"
+  done < <(grep -e " ${file}$" "${WORKSPACE}/bigtosmall_revisions_join.txt"  || echo "ERROR: $file: something went wrong" >> "${WORKSPACE}/bigtosmall_errors_revision.txt" )
 done < "${WORKSPACE}/bigtosmall_revisions_join_uniq.txt"
 printf "\n\n"
 
