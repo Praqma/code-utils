@@ -1,7 +1,7 @@
 #!/bin/bash
 
 set -e
-set -u 
+set -u
 
 [[ ${debug:-} == true ]] && set -x
 
@@ -18,7 +18,6 @@ export PATH=/c/Program\ Files/Git/mingw64/bin/:${PATH}
 
 export PATH=/c/Cygwin/bin:${PATH}
 export PATH=/usr/bin:${PATH}
-
 
 if [[ ${debug:-} == true ]]; then
   command -v find
@@ -44,7 +43,7 @@ rm -f ${WORKSPACE}/allfileshas*.txt
 if [ -d .git ]; then
   export pack_dir=".git/objects"
 else
-  gitdir=`cat .git | awk -F ": " '{print $2}'`
+  gitdir=$(cat .git | awk -F ": " '{print $2}')
   cd $gitdir
   export pack_dir="./objects"
 fi
@@ -66,30 +65,40 @@ else
   [[ -d .git/objects ]] && du -sh .git/objects
 fi
 
-if [[ -d .git/lfs ]] ; then
+if [[ -d .git/lfs ]]; then
   du -sh .git/lfs
 else
   echo ".git/lfs is not present"
 fi
-if [[ -d .git/modules ]]  ; then
+if [[ -d .git/modules ]]; then
   du -sh .git/modules
 else
   echo ".git/modules is not present"
 fi
 
-echo "Reading HEAD blobs.."
+echo "Reading branch  blobs.."
 declare -A head_blobs_map
-while read -r head_blob_line; do
-  head_blob_line_array=($head_blob_line)
-  head_blob=${head_blob_line_array[0]}
-  head_file=${head_blob_line_array[1]}
-  head_blobs_map["${head_blob}"]="${head_file}"
-  printf "."
-done < <( git ls-tree -r HEAD| cut -f 3 -d ' '  )
+while read -r branch; do
+  read -r first second <<< $(git rev-list --all --children $branch | grep ^$(git log -1 --format=%H $branch))
+  if [[ ${second:-} == "" ]] ; then
+    echo "LEAF: $branch"
+  else
+    echo "EMBEDDED: $branch - skip"
+    contniue
+  fi
+  while read -r head_blob_line; do
+    head_blob_line_array=($head_blob_line)
+    head_blob=${head_blob_line_array[0]}
+    head_file=${head_blob_line_array[1]}
+    head_blobs_map["${head_blob}"]="${head_file}"
+    printf "."
+  done < <( git ls-tree -r $branch | cut -f 3 -d ' ')
+  printf "\n"
+done < <( git branch -r | cut -f 3 -d ' '  | grep -v .*/HEAD$)
 echo
 
 git rev-list --objects --all  > "${WORKSPACE}/allfileshas.txt"
-cat "${WORKSPACE}/allfileshas.txt"| cut -d ' ' -f 2-  | uniq > ${WORKSPACE}/allfileshas_uniq.txt
+cat "${WORKSPACE}/allfileshas.txt" | cut -d ' ' -f 2- | uniq > ${WORKSPACE}/allfileshas_uniq.txt
 
 export pack_file=$(find ${pack_dir} -name '*.idx')
 echo
@@ -111,15 +120,15 @@ printf "Amount of unique <path>/<file>: %s\n" $(wc -l < "${WORKSPACE}/bigtosmall
 echo "Generate file sorted list:"
 touch "${WORKSPACE}/bigtosmall_errors.txt"
 while read -r file; do
-	printf "."
-  while read -r blob size path_file ; do
+  printf "."
+  while read -r blob size path_file; do
     [[ $file != $path_file ]] && exit 10
     prefix=" "
     if [[ "${head_blobs_map[${blob}]:-}" == "$path_file" ]]; then
-      prefix="H"
+      prefix="R"
     fi
     echo "$prefix $blob $size $path_file" >> "${WORKSPACE}/bigtosmall_sorted_size_files.txt"
-  done < <(grep -e " ${file}$" "${WORKSPACE}/bigtosmall_join.txt" || echo "ERROR: $file: something went wrong" >> "${WORKSPACE}/bigtosmall_errors.txt" )
+  done < <(grep -e " ${file}$" "${WORKSPACE}/bigtosmall_join.txt" || echo "ERROR: $file: something went wrong" >> "${WORKSPACE}/bigtosmall_errors.txt")
 
 done < "${WORKSPACE}/bigtosmall_join_uniq.txt"
 printf "\n\n"
@@ -137,15 +146,15 @@ printf "Amount of unique <path>/<file>: %s\n" $(wc -l < "${WORKSPACE}/bigtosmall
 echo "Generate file sorted list:"
 touch "${WORKSPACE}/bigtosmall_errors_revision.txt"
 while read -r file; do
-	printf "."
-  while read -r blob size path_file ; do
+  printf "."
+  while read -r blob size path_file; do
     [[ $file != $path_file ]] && exit 10
     prefix=" "
     if [[ "${head_blobs_map[${blob}]:-}" == "$file" ]]; then
       prefix="H"
     fi
     echo "$prefix $blob $size $path_file" >> "${WORKSPACE}/bigtosmall_sorted_size_files_revisions.txt"
-  done < <(grep -e " ${file}$" "${WORKSPACE}/bigtosmall_revisions_join.txt"  || echo "ERROR: $file: something went wrong" >> "${WORKSPACE}/bigtosmall_errors_revision.txt" )
+  done < <(grep -e " ${file}$" "${WORKSPACE}/bigtosmall_revisions_join.txt"  || echo "ERROR: $file: something went wrong" >> "${WORKSPACE}/bigtosmall_errors_revision.txt")
 done < "${WORKSPACE}/bigtosmall_revisions_join_uniq.txt"
 printf "\n\n"
 
