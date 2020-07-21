@@ -1,7 +1,6 @@
 #!/bin/bash
 
-set -e
-set -u
+set -eu -o pipefail
 
 [[ ${debug:-} == true ]] && set -x
 
@@ -79,6 +78,10 @@ fi
 echo "Reading branch  blobs.."
 declare -A head_blobs_map
 while read -r branch; do
+  if [[ $branch == "" ]] ; then
+    echo "branch variable is empty - skip"
+    continue
+  fi
   read -r first second <<< $(git rev-list --all --children $branch | grep ^$(git log -1 --format=%H $branch))
   if [[ ${second:-} == "" ]] ; then
     echo "LEAF: $branch"
@@ -122,13 +125,13 @@ touch "${WORKSPACE}/bigtosmall_errors.txt"
 while read -r file; do
   printf "."
   while read -r blob size path_file; do
-    [[ $file != $path_file ]] && exit 10
+    [[ "$file" != "$path_file" ]] && (echo "File: ${file} and path_file: ${path_file} are different!!! - something is wrong" && exit 10 )
     prefix=" "
     if [[ "${head_blobs_map[${blob}]:-}" == "$path_file" ]]; then
       prefix="R"
     fi
     echo "$prefix $blob $size $path_file" >> "${WORKSPACE}/bigtosmall_sorted_size_files.txt"
-  done < <(grep -e " ${file}$" "${WORKSPACE}/bigtosmall_join.txt" || echo "ERROR: $file: something went wrong" >> "${WORKSPACE}/bigtosmall_errors.txt")
+  done < <(file="${file//'.'/\\.}" && file=${file//'*'/\\*} && file=${file//'+'/\\+} && file=${file//'?'/\\?} && grep -E " ${file}$" "${WORKSPACE}/bigtosmall_join.txt" || echo "ERROR: $file: something went wrong" >> "${WORKSPACE}/bigtosmall_errors.txt")
 
 done < "${WORKSPACE}/bigtosmall_join_uniq.txt"
 printf "\n\n"
@@ -148,13 +151,13 @@ touch "${WORKSPACE}/bigtosmall_errors_revision.txt"
 while read -r file; do
   printf "."
   while read -r blob size path_file; do
-    [[ $file != $path_file ]] && exit 10
+    [[ $file != $path_file ]] && (echo "File: ${file} and path_file: ${path_file} are different!!! - something is wrong" && exit 11 )
     prefix=" "
     if [[ "${head_blobs_map[${blob}]:-}" == "$file" ]]; then
       prefix="H"
     fi
     echo "$prefix $blob $size $path_file" >> "${WORKSPACE}/bigtosmall_sorted_size_files_revisions.txt"
-  done < <(grep -e " ${file}$" "${WORKSPACE}/bigtosmall_revisions_join.txt"  || echo "ERROR: $file: something went wrong" >> "${WORKSPACE}/bigtosmall_errors_revision.txt")
+  done < <(file="${file//'.'/\\.}" && file=${file//'*'/\\*} && file=${file//'+'/\\+} && file=${file//'?'/\\?} && grep -E " ${file}$" "${WORKSPACE}/bigtosmall_revisions_join.txt"  || echo "ERROR: $file: something went wrong" >> "${WORKSPACE}/bigtosmall_errors_revision.txt")
 done < "${WORKSPACE}/bigtosmall_revisions_join_uniq.txt"
 printf "\n\n"
 
