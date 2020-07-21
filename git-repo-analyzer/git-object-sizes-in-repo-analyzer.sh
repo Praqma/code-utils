@@ -84,7 +84,7 @@ while read -r branch; do
     echo "LEAF: $branch"
   else
     echo "EMBEDDED: $branch - skip"
-    contniue
+    continue
   fi
   while read -r head_blob_line; do
     head_blob_line_array=($head_blob_line)
