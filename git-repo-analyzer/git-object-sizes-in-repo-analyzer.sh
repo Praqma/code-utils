@@ -4,7 +4,7 @@ set -eu -o pipefail
 
 [[ ${debug:-} == true ]] && set -x
 
-[[ ${repack:-} == "" ]] && repack=false
+[[ ${repack:-} == "" ]] && repack=true
 
 export PATH=/cygdrive/c/Program\ Files\ \(x86\)/Git/bin:${PATH}
 export PATH=/cygdrive/c/Cygwin/bin:${PATH}
