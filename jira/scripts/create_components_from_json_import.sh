@@ -21,13 +21,13 @@ for component in $(jq -r ".projects[0].components[] | select(.name? | match(\"${
   echo $component
   jq -r ".projects[0].components[] | select(.name == \"${component}\")"  $import_file  > jira_component.json
   jq -s '.[0] * .[1]' jira_project.json jira_component.json > jira_component2.json
+  rm jira_component.json
 
   if ! curl --fail --insecure --netrc-file ${netrc_file} -X POST -H Content-Type:application/json -o - --url ${jira_server}/rest/api/2/component --upload-file jira_component2.json  ; then
     echo "Failed.. Maybe the component is already in the project.. Exit code: $?"
     exit 1
   fi
   echo
-  rm -f jira_component.json
   rm -f jira_component2.json
 done
 rm jira_project.json
