@@ -110,6 +110,7 @@ git verify-pack -v ${pack_file} > "${WORKSPACE}/verify_pack.txt"
 echo "Done"
 
 printf "\n"
+touch "${WORKSPACE}/bigtosmall_sorted_size_files.txt"
 echo "Investigate blobs that are directly stored in idx file: ${pack_file}"
 if [[ ! $(grep -E "^[a-f0-9]{40}[[:space:]]blob[[:space:]]+[0-9]+[[:space:]][0-9]+[[:space:]][0-9]+$" "${WORKSPACE}/verify_pack.txt" | awk -F" " '{print $1,$2,$3,$4,$5}' > "${WORKSPACE}/bigobjects.txt") ]]; then
   printf "Amount of objects: %s\n" $(wc -l < "${WORKSPACE}/bigobjects.txt")
@@ -121,7 +122,6 @@ if [[ ! $(grep -E "^[a-f0-9]{40}[[:space:]]blob[[:space:]]+[0-9]+[[:space:]][0-9
   printf "Amount of unique <path>/<file>: %s\n" $(wc -l < "${WORKSPACE}/bigtosmall_join_uniq.txt")
 else
   printf "Amount of unique <path>/<file>: 0 - skip\n"
-  touch "${WORKSPACE}/bigtosmall_sorted_size_files.txt"
 fi
 
 echo "Generate file sorted list:"
@@ -140,6 +140,7 @@ while read -r file; do
 done < "${WORKSPACE}/bigtosmall_join_uniq.txt"
 printf "\n\n"
 
+touch "${WORKSPACE}/bigtosmall_sorted_size_files_revisions.txt"
 echo "Investigate blobs that are packed in revisions in idx file: ${pack_file}"
 if [[ ! $(grep -E "^[a-f0-9]{40}[[:space:]]blob[[:space:]]+[0-9]+[[:space:]][0-9]+[[:space:]][0-9]+[[:space:]][0-9]+[[:space:]][a-f0-9]{40}$" "${WORKSPACE}/verify_pack.txt" | awk -F" " '{print $1,$2,$3,$4,$5}' > "${WORKSPACE}/bigobjects_revisions.txt") ]]; then
   printf "Amount of objects: %s\n" $(wc -l < "${WORKSPACE}/bigobjects_revisions.txt")
@@ -150,7 +151,6 @@ if [[ ! $(grep -E "^[a-f0-9]{40}[[:space:]]blob[[:space:]]+[0-9]+[[:space:]][0-9
   printf "Amount of unique <path>/<file>: %s\n" $(wc -l < "${WORKSPACE}/bigtosmall_revisions_join_uniq.txt")
 else
   printf "Amount of objects: 0 - skip\n"
-  touch "${WORKSPACE}/bigtosmall_sorted_size_files_revisions.txt"
 fi
 
 echo "Generate file sorted list:"
