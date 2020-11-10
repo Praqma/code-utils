@@ -111,14 +111,17 @@ echo "Done"
 
 printf "\n"
 echo "Investigate blobs that are directly stored in idx file: ${pack_file}"
-grep -E "^\w+ blob\W+[0-9]+ [0-9]+ [0-9]+$" "${WORKSPACE}/verify_pack.txt" | awk -F" " '{print $1,$2,$3,$4,$5}' > "${WORKSPACE}/bigobjects.txt"
-printf "Amount of objects: %s\n" $(wc -l < "${WORKSPACE}/bigobjects.txt")
-join <(sort "${WORKSPACE}/bigobjects.txt") <(sort "${WORKSPACE}/allfileshas.txt") | sort -k 3 -n -r | cut -f 1,3,6-  -d ' ' > "${WORKSPACE}/bigtosmall_join.txt"
+if [[ ! $(grep -E "^[a-f0-9]{40}[[:space:]]blob[[:space:]]+[0-9]+[[:space:]][0-9]+[[:space:]][0-9]+$" "${WORKSPACE}/verify_pack.txt" | awk -F" " '{print $1,$2,$3,$4,$5}' > "${WORKSPACE}/bigobjects.txt") ]]; then
+  printf "Amount of objects: %s\n" $(wc -l < "${WORKSPACE}/bigobjects.txt")
+  join <(sort "${WORKSPACE}/bigobjects.txt") <(sort "${WORKSPACE}/allfileshas.txt") | sort -k 3 -n -r | cut -f 1,3,6-  -d ' ' > "${WORKSPACE}/bigtosmall_join.txt"
 
-touch "${WORKSPACE}/bigtosmall_join_uniq.txt"
-cat "${WORKSPACE}/bigtosmall_join.txt" |  cut -d ' ' -f 3- > ${WORKSPACE}/bigtosmall_join_all.txt
-cat -n ${WORKSPACE}/bigtosmall_join_all.txt | /usr/bin/sort -uk2 | /usr/bin/sort -n | cut -f2- > "${WORKSPACE}/bigtosmall_join_uniq.txt"
-printf "Amount of unique <path>/<file>: %s\n" $(wc -l < "${WORKSPACE}/bigtosmall_join_uniq.txt")
+  touch "${WORKSPACE}/bigtosmall_join_uniq.txt"
+  cat "${WORKSPACE}/bigtosmall_join.txt" |  cut -d ' ' -f 3- > ${WORKSPACE}/bigtosmall_join_all.txt
+  cat -n ${WORKSPACE}/bigtosmall_join_all.txt | /usr/bin/sort -uk2 | /usr/bin/sort -n | cut -f2- > "${WORKSPACE}/bigtosmall_join_uniq.txt"
+  printf "Amount of unique <path>/<file>: %s\n" $(wc -l < "${WORKSPACE}/bigtosmall_join_uniq.txt")
+else
+  printf "Amount of unique <path>/<file>: 0 - skip\n"
+fi
 
 echo "Generate file sorted list:"
 touch "${WORKSPACE}/bigtosmall_errors.txt"
@@ -137,14 +140,16 @@ done < "${WORKSPACE}/bigtosmall_join_uniq.txt"
 printf "\n\n"
 
 echo "Investigate blobs that are packed in revisions in idx file: ${pack_file}"
-grep -E "^\w+ blob\W+[0-9]+ [0-9]+ [0-9]+ [0-9]+" "${WORKSPACE}/verify_pack.txt" | awk -F" " '{print $1,$2,$3,$4,$5}' > "${WORKSPACE}/bigobjects_revisions.txt"
-printf "Amount of objects: %s\n" $(wc -l < "${WORKSPACE}/bigobjects_revisions.txt")
-join <(sort "${WORKSPACE}/bigobjects_revisions.txt") <(sort "${WORKSPACE}/allfileshas.txt") | sort -k 3 -n -r | cut -f 1,3,6- -d ' '  > "${WORKSPACE}/bigtosmall_revisions_join.txt"
-
-touch "${WORKSPACE}/bigtosmall_revisions_join_uniq.txt"
-cat "${WORKSPACE}/bigtosmall_revisions_join.txt" |  cut -d ' ' -f 3- > "${WORKSPACE}/bigtosmall_revisions_join_all.txt"
-cat -n "${WORKSPACE}/bigtosmall_revisions_join_all.txt" | /usr/bin/sort -uk2 | /usr/bin/sort -n | cut -f2- > "${WORKSPACE}/bigtosmall_revisions_join_uniq.txt"
-printf "Amount of unique <path>/<file>: %s\n" $(wc -l < "${WORKSPACE}/bigtosmall_revisions_join_uniq.txt")
+if [[ ! $(grep -E "^[a-f0-9]{40}[[:space:]]blob[[:space:]]+[0-9]+[[:space:]][0-9]+[[:space:]][0-9]+[[:space:]][0-9]+[[:space:]][a-f0-9]{40}$" "${WORKSPACE}/verify_pack.txt" | awk -F" " '{print $1,$2,$3,$4,$5}' > "${WORKSPACE}/bigobjects_revisions.txt") ]]; then
+  printf "Amount of objects: %s\n" $(wc -l < "${WORKSPACE}/bigobjects_revisions.txt")
+  join <(sort "${WORKSPACE}/bigobjects_revisions.txt") <(sort "${WORKSPACE}/allfileshas.txt") | sort -k 3 -n -r | cut -f 1,3,6- -d ' '  > "${WORKSPACE}/bigtosmall_revisions_join.txt"
+  touch "${WORKSPACE}/bigtosmall_revisions_join_uniq.txt"
+  cat "${WORKSPACE}/bigtosmall_revisions_join.txt" |  cut -d ' ' -f 3- > "${WORKSPACE}/bigtosmall_revisions_join_all.txt"
+  cat -n "${WORKSPACE}/bigtosmall_revisions_join_all.txt" | /usr/bin/sort -uk2 | /usr/bin/sort -n | cut -f2- > "${WORKSPACE}/bigtosmall_revisions_join_uniq.txt"
+  printf "Amount of unique <path>/<file>: %s\n" $(wc -l < "${WORKSPACE}/bigtosmall_revisions_join_uniq.txt")
+else
+  printf "Amount of objects: 0 - skip\n"
+fi
 
 echo "Generate file sorted list:"
 touch "${WORKSPACE}/bigtosmall_errors_revision.txt"
