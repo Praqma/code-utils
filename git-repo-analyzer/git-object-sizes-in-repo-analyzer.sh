@@ -121,6 +121,7 @@ if [[ ! $(grep -E "^[a-f0-9]{40}[[:space:]]blob[[:space:]]+[0-9]+[[:space:]][0-9
   printf "Amount of unique <path>/<file>: %s\n" $(wc -l < "${WORKSPACE}/bigtosmall_join_uniq.txt")
 else
   printf "Amount of unique <path>/<file>: 0 - skip\n"
+  touch "${WORKSPACE}/bigtosmall_sorted_size_files.txt"
 fi
 
 echo "Generate file sorted list:"
@@ -149,6 +150,7 @@ if [[ ! $(grep -E "^[a-f0-9]{40}[[:space:]]blob[[:space:]]+[0-9]+[[:space:]][0-9
   printf "Amount of unique <path>/<file>: %s\n" $(wc -l < "${WORKSPACE}/bigtosmall_revisions_join_uniq.txt")
 else
   printf "Amount of objects: 0 - skip\n"
+  touch "${WORKSPACE}/bigtosmall_sorted_size_files_revisions.txt"
 fi
 
 echo "Generate file sorted list:"
