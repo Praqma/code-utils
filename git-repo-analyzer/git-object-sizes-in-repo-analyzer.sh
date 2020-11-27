@@ -38,6 +38,7 @@ echo
 rm -f ${WORKSPACE}/bigtosmall_*.txt
 rm -f ${WORKSPACE}/bigobjects*.txt
 rm -f ${WORKSPACE}/allfileshas*.txt
+rm -f ${WORKSPACE}/branches_embedded.txt
 
 if [ -d .git ]; then
   export pack_dir=".git/objects"
@@ -87,6 +88,7 @@ while read -r branch; do
     echo "LEAF: $branch"
   else
     echo "EMBEDDED: $branch - skip"
+    echo "$branch" >> ${WORKSPACE}/branches_embedded.txt
     continue
   fi
   while read -r head_blob_line; do
