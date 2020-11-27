@@ -39,6 +39,7 @@ rm -f ${WORKSPACE}/bigtosmall_*.txt
 rm -f ${WORKSPACE}/bigobjects*.txt
 rm -f ${WORKSPACE}/allfileshas*.txt
 rm -f ${WORKSPACE}/branches_embedded.txt
+rm -f ${WORKSPACE}/branches_leaves.txt
 
 if [ -d .git ]; then
   export pack_dir=".git/objects"
@@ -86,6 +87,7 @@ while read -r branch; do
   read -r first second <<< $(git rev-list --all --children $branch | grep ^$(git log -1 --format=%H $branch))
   if [[ ${second:-} == "" ]] ; then
     echo "LEAF: $branch"
+    echo "$branch" >> ${WORKSPACE}/branches_leaves.txt
   else
     echo "EMBEDDED: $branch - skip"
     echo "$branch" >> ${WORKSPACE}/branches_embedded.txt
