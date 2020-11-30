@@ -79,29 +79,29 @@ fi
 
 echo "Reading branch  blobs.."
 declare -A head_blobs_map
-while read -r branch; do
-  if [[ $branch == "" ]] ; then
-    echo "branch variable is empty - skip"
-    continue
-  fi
-  read -r first second <<< $(git rev-list --all --children $branch | grep ^$(git log -1 --format=%H $branch))
-  if [[ ${second:-} == "" ]] ; then
-    echo "LEAF: $branch"
-    echo "$branch" >> ${WORKSPACE}/branches_leaves.txt
-  else
-    echo "EMBEDDED: $branch - skip"
-    echo "$branch" >> ${WORKSPACE}/branches_embedded.txt
-    continue
-  fi
-  while read -r head_blob_line; do
-    head_blob_line_array=($head_blob_line)
-    head_blob=${head_blob_line_array[0]}
-    head_file=${head_blob_line_array[1]}
-    head_blobs_map["${head_blob}"]="${head_file}"
-    printf "."
-  done < <( git ls-tree -r $branch | cut -f 3 -d ' ')
-  printf "\n"
-done < <( git branch -r | cut -f 3 -d ' '  | grep -v .*/HEAD$)
+if [[ $(git branch -r) != "" ]] ;then
+  while read -r branch; do
+    if [[ $branch == "" ]] ; then
+      echo "branch variable is empty - skip"
+      continue
+    fi
+    read -r first second <<< $(git rev-list --all --children $branch | grep ^$(git log -1 --format=%H $branch))
+    if [[ ${second:-} == "" ]] ; then
+      printf "LEAF: %s : %s\n" "${branch}" "$( git log --oneline --decorate )" | tee -a ${WORKSPACE}/branches_leaves.txt
+    else
+      printf "EMBEDDED: %s - skip : %s\n" "${branch}" "$( git log --oneline --decorate )" | tee -a ${WORKSPACE}/branches_embedded.txt
+      continue
+    fi
+    while read -r head_blob_line; do
+      head_blob_line_array=($head_blob_line)
+      head_blob=${head_blob_line_array[0]}
+      head_file=${head_blob_line_array[1]}
+      head_blobs_map["${head_blob}"]="${head_file}"
+      printf "."
+    done < <( git ls-tree -r $branch | cut -f 3 -d ' ')
+    printf "\n"
+  done < <( git branch -r | cut -f 3 -d ' '  | grep -v .*/HEAD$)
+fi
 echo
 
 git rev-list --objects --all  > "${WORKSPACE}/allfileshas.txt"
