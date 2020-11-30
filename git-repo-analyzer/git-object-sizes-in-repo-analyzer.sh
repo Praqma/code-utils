@@ -135,7 +135,7 @@ while read -r file; do
       prefix="R"
     fi
     echo "$prefix $blob $size $path_file" >> "${WORKSPACE}/bigtosmall_sorted_size_files.txt"
-  done < <(file="${file//'.'/\\.}" && file=${file//'*'/\\*} && file=${file//'+'/\\+} && file=${file//'?'/\\?} && grep -E " ${file}$" "${WORKSPACE}/bigtosmall_join.txt" || echo "ERROR: $file: something went wrong" >> "${WORKSPACE}/bigtosmall_errors.txt")
+  done < <(file="${file//'.'/\\.}" && file=${file//'*'/\\*} && file=${file//'+'/\\+} && file=${file//'?'/\\?} && file=${file//'('/\\(} && file=${file//')'/\\)} && grep -E " ${file}$" "${WORKSPACE}/bigtosmall_join.txt" || echo "ERROR: $file: something went wrong" >> "${WORKSPACE}/bigtosmall_errors.txt")
 
 done < "${WORKSPACE}/bigtosmall_join_uniq.txt"
 printf "\n\n"
@@ -164,7 +164,7 @@ while read -r file; do
       prefix="H"
     fi
     echo "$prefix $blob $size $path_file" >> "${WORKSPACE}/bigtosmall_sorted_size_files_revisions.txt"
-  done < <(file="${file//'.'/\\.}" && file=${file//'*'/\\*} && file=${file//'+'/\\+} && file=${file//'?'/\\?} && grep -E " ${file}$" "${WORKSPACE}/bigtosmall_revisions_join.txt"  || echo "ERROR: $file: something went wrong" >> "${WORKSPACE}/bigtosmall_errors_revision.txt")
+  done < <(file="${file//'.'/\\.}" && file=${file//'*'/\\*} && file=${file//'+'/\\+} && file=${file//'?'/\\?}  && file=${file//'('/\\(} && file=${file//')'/\\)} && grep -E " ${file}$" "${WORKSPACE}/bigtosmall_revisions_join.txt"  || echo "ERROR: $file: something went wrong" >> "${WORKSPACE}/bigtosmall_errors_revision.txt")
 done < "${WORKSPACE}/bigtosmall_revisions_join_uniq.txt"
 printf "\n\n"
 
