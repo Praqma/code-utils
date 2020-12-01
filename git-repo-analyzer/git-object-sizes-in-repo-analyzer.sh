@@ -87,7 +87,7 @@ if [[ $(git branch -r) != "" ]] ;then
     fi
     read -r first second <<< $(git rev-list --all --children $branch | grep ^$(git log -1 --format=%H $branch))
     if [[ ${second:-} == "" ]] ; then
-      printf "LEAF: %s : %s\n" "${branch}" "$( git log --oneline --decorate -1 ${branch} )" | tee -a ${WORKSPACE}/branches_leaves.txt
+      printf "LEAF: %s : ( #commits: %s ) : %s\n" "${branch}" "$(git log --oneline --format=%H ${branch}..remotes/origin/HEAD )" "$( git log --oneline --decorate -1 ${branch} )" | tee -a ${WORKSPACE}/branches_leaves.txt
     else
       printf "EMBEDDED: %s - skip : %s\n" "${branch}" "$( git log --oneline --decorate -1 ${branch} )" | tee -a ${WORKSPACE}/branches_embedded.txt
       continue
