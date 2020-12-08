@@ -100,6 +100,8 @@ if [[ ${repack} == true ]]; then
   echo "git repo and object sizes after repack:"
   [[ -d .git/objects ]] && du -sh .git/objects
   du -sh .git
+  export pack_file=$(find ${pack_dir} -name '*.idx')
+  [[ ${pack_file} ==  "" ]] && echo "No pack file available - exit 1" && exit 1
 else
   printf "repack == false - skip\n\n"
 
