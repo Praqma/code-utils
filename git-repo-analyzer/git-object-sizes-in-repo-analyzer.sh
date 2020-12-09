@@ -54,6 +54,17 @@ function progress_bar_update (){
   fi
 }
 
+if [[ $(git rev-parse --is-bare-repository) == true ]]; then
+  echo "repo_type=bare  ( bare / normal )"  echo
+  pack_dir="./objects"
+  git_dir="."
+else
+  echo "repo_type=normal ( bare / normal )"
+  git_dir=".git"
+  pack_dir=".git/objects"
+fi
+echo
+export pack_dir
 
 if [[ ${debug:-} == true ]]; then
   command -v find
@@ -79,14 +90,6 @@ rm -f ${WORKSPACE}/allfileshas*.txt
 rm -f ${WORKSPACE}/branches_embedded.txt
 rm -f ${WORKSPACE}/branches_leaves.txt
 
-if [[ $(git rev-parse --is-bare-repository) ]]; then
-  pack_dir="./objects"
-  git_dir="."
-else
-  git_dir=".git"
-  pack_dir=".git/objects"
-fi
-export pack_dir
 
 printf "Clean old temp packs(if present): \n"
 find ${pack_dir} -name '.tmp*.pack' -o -name '.tmp*.idx'
