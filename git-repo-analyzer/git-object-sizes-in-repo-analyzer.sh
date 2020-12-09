@@ -54,17 +54,6 @@ function progress_bar_update (){
   fi
 }
 
-if [[ $(git rev-parse --is-bare-repository) == true ]]; then
-  echo "repo_type=bare  ( bare / normal )"  echo
-  pack_dir="./objects"
-  git_dir="."
-else
-  echo "repo_type=normal ( bare / normal )"
-  git_dir=".git"
-  pack_dir=".git/objects"
-fi
-echo
-export pack_dir
 
 if [[ ${debug:-} == true ]]; then
   command -v find
@@ -80,6 +69,19 @@ if [[ "${1:-}" != "" ]]; then
   test -e ${1} && cd ${1}
 fi
 echo
+
+if [[ $(git rev-parse --is-bare-repository) == true ]]; then
+  echo "repo_type=bare  ( bare / normal )"  echo
+  pack_dir="./objects"
+  git_dir="."
+else
+  echo "repo_type=normal ( bare / normal )"
+  git_dir=".git"
+  pack_dir=".git/objects"
+fi
+echo
+export pack_dir
+
 echo "Analyzing git in: $(pwd) "
 echo "Saving outfiles in: ${WORKSPACE}"
 echo
