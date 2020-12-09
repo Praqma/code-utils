@@ -41,16 +41,16 @@ function progress_bar_update (){
     fill="${fill}#"
     processed_percent_jump=$(printf "%d\n" "$(( processed_count * 100 / amount_total_unique /10))")
   fi
-  if [[ $processed_percent != $processed_percent_last ]]; then
+  if [[ $processed_percent != "$processed_percent_last" ]]; then
     processed_percent_last=${processed_percent}
     if [[ $interactive == false ]] ; then
       # non-interactive
-      printf "[ %-10s %s\n" "$fill" " ] ${processed_percent}% - $processed_count / $amount_total_unique"
+      printf "[ %-10s ] %4s - %s\n" "$fill" "${processed_percent}%" "$processed_count / $amount_total_unique"
     fi
   fi
   if [[ $interactive == true ]] ; then
     # interactive
-    printf "[ %-10s %s\r" "$fill" " ] ${processed_percent}% - $processed_count / $amount_total_unique"
+    printf "[ %-10s ] %4s - %s\r" "$fill" "${processed_percent}%" "$processed_count / $amount_total_unique"
   fi
 }
 
@@ -62,7 +62,8 @@ if [[ ${debug:-} == true ]]; then
   printf "PATH:\n%s\n" "${PATH}"
 fi
 if [[ "${WORKSPACE:-}" == "" ]]; then
-  export WORKSPACE=$(pwd)
+  WORKSPACE=$(pwd)
+  export WORKSPACE
 fi
 if [[ "${1:-}" != "" ]]; then
   test -e ${1} && cd ${1}
@@ -78,52 +79,51 @@ rm -f ${WORKSPACE}/allfileshas*.txt
 rm -f ${WORKSPACE}/branches_embedded.txt
 rm -f ${WORKSPACE}/branches_leaves.txt
 
-if [ -d .git ]; then
-  export pack_dir=".git/objects"
+if [[ $(git rev-parse --is-bare-repository) ]]; then
+  pack_dir="./objects"
+  git_dir="."
 else
-  gitdir=$(cat .git | awk -F ": " '{print $2}')
-  cd $gitdir
-  export pack_dir="./objects"
+  git_dir=".git"
+  pack_dir=".git/objects"
 fi
+export pack_dir
 
-export pack_file=$(find ${pack_dir} -name '*.idx')
+printf "Clean old temp packs(if present): \n"
+find ${pack_dir} -name '.tmp*.pack' -o -name '.tmp*.idx'
+find ${pack_dir} -name '.tmp*.pack' -o -name '.tmp*.idx' | xargs --no-run-if-empty rm -f
+printf "Done\n\n"
+
+pack_file=$(find ${pack_dir} -name '*.idx')
 [[ ${pack_file} ==  "" ]] && { echo "No pack file available - do a repack" && repack="true" ;}
 
 if [[ ${repack} == true ]]; then
   echo "git repo and object sizes before repack:"
-  du -sh .git
-  [[ -d .git/objects ]] && du -sh .git/objects
+  du -sh "${git_dir}"
+  [[ -d "${git_dir}/${pack_dir}" ]] && du -sh "${git_dir}/${pack_dir}"
   # reference: https://stackoverflow.com/questions/28720151/git-gc-aggressive-vs-git-repack
   git reflog expire --all --expire=now
   git repack -a -d --depth=250 --window=250 # accept to use old deltas - add "-f" option to not reuse old deltas for large repos it fails often
   git gc --prune
   echo "git repo and object sizes after repack:"
-  [[ -d .git/objects ]] && du -sh .git/objects
-  du -sh .git
-  export pack_file=$(find ${pack_dir} -name '*.idx')
+  [[ -d "${git_dir}/${pack_dir}" ]] && du -sh "${git_dir}/${pack_dir}"
+  du -sh "${git_dir}"
+  pack_file=$(find ${pack_dir} -name '*.idx')
   [[ ${pack_file} ==  "" ]] && echo "No pack file available - exit 1" && exit 1
 else
   printf "repack == false - skip\n\n"
 
   echo "git repo and object sizes:"
-  du -sh .git
-  [[ -d .git/objects ]] && du -sh .git/objects
+  du -sh "${git_dir}"
+  [[ -d "${git_dir}/${pack_dir}" ]] && du -sh "${git_dir}/${pack_dir}"
   echo
 fi
+export pack_file
 echo "Run verify-pack to list all objects in idx"
-git verify-pack -v ${pack_file} > "${WORKSPACE}/verify_pack.txt"
+git verify-pack -v "${pack_file}" > "${WORKSPACE}/verify_pack.txt"
 echo "Done"
 
-if [[ -d .git/lfs ]]; then
-  du -sh .git/lfs
-else
-  echo ".git/lfs is not present"
-fi
-if [[ -d .git/modules ]]; then
-  du -sh .git/modules
-else
-  echo ".git/modules is not present"
-fi
+[[ -d "${git_dir}/lfs" ]]     && du -sh "${git_dir}/lfs"     || echo "${git_dir}/lfs is not present"
+[[ -d "${git_dir}/modules" ]] && du -sh "${git_dir}/modules" || echo "${git_dir}/modules is not present"
 
 declare -A head_blobs_map
 if [[ ${invest_remote_branches} == true ]]; then
@@ -134,7 +134,9 @@ if [[ ${invest_remote_branches} == true ]]; then
         echo "branch variable is empty - skip"
         continue
       fi
-      read -r first second <<< $(git rev-list --all --children $branch | grep ^$(git log -1 --format=%H $branch))
+      # shellcheck disable=SC2034
+      # shellcheck disable=SC2046
+      read -r first second <<< "$(git rev-list --all --children $branch | grep ^$(git log -1 --format=%H $branch))"
       if [[ ${second:-} == "" ]] ; then
         printf "LEAF: %s : ( #commits/files: %s/%s ) : %s\n" \
                                   "${branch}" \
@@ -143,9 +145,10 @@ if [[ ${invest_remote_branches} == true ]]; then
                                   "$( git log --oneline --decorate -1 ${branch} )" \
                                 | tee -a ${WORKSPACE}/branches_leaves.txt
       else
-        printf "EMBEDDED: %s - skip : %s\n\n" "${branch}" "$( git log --oneline --decorate -1 ${branch} )" | tee -a ${WORKSPACE}/branches_embedded.txt
+        printf "EMBEDDED: %s - skip : %s\n\n" "${branch}" "$( git log --oneline --decorate -1 ${branch} )" | tee -a "${WORKSPACE}/branches_embedded.txt"
         continue
       fi
+      # shellcheck disable=SC2046
       while read -r head_blob_line; do
         head_blob_line_array=($head_blob_line)
         head_blob=${head_blob_line_array[0]}
@@ -155,10 +158,10 @@ if [[ ${invest_remote_branches} == true ]]; then
         [[ ${progress:-} == "true" ]] && printf "."
       done < <( git diff-tree -r $(git merge-base origin/HEAD ${branch} )..${branch} | cut -f 4- -d ' ')
       printf "\n"
-    done < <( git branch -r | cut -f 3 -d ' '  | grep -v .*/HEAD$)
+    done < <( git branch -r | cut -f 3 -d ' '  | grep -v ".*/HEAD$")
     printf "\nMake tagged branches lists: "
-    grep " (tag: " ${WORKSPACE}/branches_leaves.txt > ${WORKSPACE}/branches_leaves_tagged.txt
-    grep " (tag: " ${WORKSPACE}/branches_embedded.txt > ${WORKSPACE}/branches_embedded_tagged.txt
+    grep " (tag: " "${WORKSPACE}/branches_leaves.txt" > "${WORKSPACE}/branches_leaves_tagged.txt" &>2 / dev/null || echo "INFO: No leaf branches with tags"
+    grep " (tag: " "${WORKSPACE}/branches_embedded.txt" > "${WORKSPACE}/branches_embedded_tagged.txt" &>2 / dev/null || echo "INFO: No embbedded branches with tags"
     printf "Done\n\n"
   else
     printf "No remote branches found - skip\n"
@@ -170,18 +173,18 @@ fi
 echo
 
 git rev-list --objects --all  > "${WORKSPACE}/allfileshas.txt"
-cat "${WORKSPACE}/allfileshas.txt" | cut -d ' ' -f 2- | uniq > ${WORKSPACE}/allfileshas_uniq.txt
+cat "${WORKSPACE}/allfileshas.txt" | cut -d ' ' -f 2- | uniq > "${WORKSPACE}/allfileshas_uniq.txt"
 
 printf "\n"
 touch "${WORKSPACE}/bigtosmall_sorted_size_files.txt"
 echo "Investigate blobs that are directly stored in idx file: ${pack_file}"
 if [[ ! $(grep -E "^[a-f0-9]{40}[[:space:]]blob[[:space:]]+[0-9]+[[:space:]][0-9]+[[:space:]][0-9]+$" "${WORKSPACE}/verify_pack.txt" | awk -F" " '{print $1,$2,$3,$4,$5}' > "${WORKSPACE}/bigobjects.txt") ]]; then
-  printf "Amount of objects: %s\n" $(wc -l < "${WORKSPACE}/bigobjects.txt")
+  printf "Amount of objects: %s\n" "$(wc -l < "${WORKSPACE}/bigobjects.txt")"
   join <(sort "${WORKSPACE}/bigobjects.txt") <(sort "${WORKSPACE}/allfileshas.txt") | sort -k 3 -n -r | cut -f 1,3,6-  -d ' ' > "${WORKSPACE}/bigtosmall_join.txt"
 
   touch "${WORKSPACE}/bigtosmall_join_uniq.txt"
-  cat "${WORKSPACE}/bigtosmall_join.txt" |  cut -d ' ' -f 3- > ${WORKSPACE}/bigtosmall_join_all.txt
-  cat -n ${WORKSPACE}/bigtosmall_join_all.txt | /usr/bin/sort -uk2 | /usr/bin/sort -n | cut -f2- > "${WORKSPACE}/bigtosmall_join_uniq.txt"
+  cat "${WORKSPACE}/bigtosmall_join.txt" |  cut -d ' ' -f 3- > "${WORKSPACE}/bigtosmall_join_all.txt"
+  cat -n "${WORKSPACE}/bigtosmall_join_all.txt" | /usr/bin/sort -uk2 | /usr/bin/sort -n | cut -f2- > "${WORKSPACE}/bigtosmall_join_uniq.txt"
   amount_total_unique=$(wc -l < "${WORKSPACE}/bigtosmall_join_uniq.txt")
   printf "Amount of unique <path>/<file>: %s\n" "${amount_total_unique}"
 else
@@ -201,7 +204,13 @@ while read -r file; do
       prefix="R"
     fi
     echo "$prefix $blob $size $path_file" >> "${WORKSPACE}/bigtosmall_sorted_size_files.txt"
-  done < <(file="${file//'.'/\\.}" && file=${file//'*'/\\*} && file=${file//'+'/\\+} && file=${file//'?'/\\?} && file=${file//'('/\\(} && file=${file//')'/\\)} && grep -E " ${file}$" "${WORKSPACE}/bigtosmall_join.txt" || echo "ERROR: $file: something went wrong" >> "${WORKSPACE}/bigtosmall_errors.txt")
+  done < <( file="${file//'.'/\\.}" && \
+            file=${file//'*'/\\*} && \
+            file=${file//'+'/\\+} && \
+            file=${file//'?'/\\?} && \
+            file=${file//'('/\\(} && \
+            file=${file//')'/\\)} && \
+            grep -E " ${file}$" "${WORKSPACE}/bigtosmall_join.txt" || echo "ERROR: $file: something went wrong" >> "${WORKSPACE}/bigtosmall_errors.txt")
 
 done < "${WORKSPACE}/bigtosmall_join_uniq.txt"
 printf "\n\n"
@@ -226,7 +235,7 @@ progress_bar_init
 while read -r file; do
   progress_bar_update
   while read -r blob size path_file; do
-    [[ $file != $path_file ]] && (echo "File: ${file} and path_file: ${path_file} are different!!! - something is wrong" && exit 11 )
+    [[ $file != "$path_file" ]] && (echo "File: ${file} and path_file: ${path_file} are different!!! - something is wrong" && exit 11 )
     prefix=" "
     if [[ "${head_blobs_map[${blob}]:-}" == "$file" ]]; then
       prefix="R"
