@@ -247,11 +247,14 @@ while read -r file; do
     fi
     echo "$prefix $blob $size $path_file" >> "${file_output_sorted_size_files}"
   done < <( file="${file//'.'/\\.}" && \
-            file=${file//'*'/\\*} && \
-            file=${file//'+'/\\+} && \
-            file=${file//'?'/\\?} && \
-            file=${file//'('/\\(} && \
-            file=${file//')'/\\)} && \
+            file="${file//'*'/\\*}" && \
+            file="${file//'+'/\\+}" && \
+            file="${file//'?'/\\?}" && \
+            file="${file//'('/\\(}" && \
+            file="${file//')'/\\)}" && \
+            file="${file//'['/\\[}" && \
+            file="${file//']'/\\]}" && \
+            file="${file//$/\\$}"  && \
             grep -E " ${file}$" "${file_tmp_bigtosmall_join}" || echo "ERROR: $file: something went wrong" >> "${WORKSPACE}/bigtosmall_errors.txt")
 
 done < "${WORKSPACE}/bigtosmall_join_uniq.txt"
@@ -283,7 +286,16 @@ while read -r file; do
       prefix="R"
     fi
     echo "$prefix $blob $size $path_file" >> "${file_output_sorted_size_files_revisions}"
-  done < <(file="${file//'.'/\\.}" && file=${file//'*'/\\*} && file=${file//'+'/\\+} && file=${file//'?'/\\?}  && file=${file//'('/\\(} && file=${file//')'/\\)} && grep -E " ${file}$" "${WORKSPACE}/bigtosmall_revisions_join.txt"  || echo "ERROR: $file: something went wrong" >> "${WORKSPACE}/bigtosmall_errors_revision.txt")
+  done < <( file="${file//'.'/\\.}" && \
+            file="${file//'*'/\\*}" && \
+            file="${file//'+'/\\+}" && \
+            file="${file//'?'/\\?}" && \
+            file="${file//'('/\\(}" && \
+            file="${file//')'/\\)}" && \
+            file="${file//'['/\\[}" && \
+            file="${file//']'/\\]}" && \
+            file="${file//$/\\$}"  && \
+            grep -E " ${file}$" "${WORKSPACE}/bigtosmall_revisions_join.txt"  || echo "ERROR: $file: something went wrong" >> "${WORKSPACE}/bigtosmall_errors_revision.txt")
 done < "${WORKSPACE}/bigtosmall_revisions_join_uniq.txt"
 printf "\n\n"
 
