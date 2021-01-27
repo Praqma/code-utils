@@ -73,14 +73,14 @@ if [[ $(git rev-parse --is-bare-repository) == true ]]; then
   pack_dir="./objects"
   git_dir="."
   branch_remote_option=""
-  default_branch=$(git branch  | grep -q '^* ' | cut -f 2 -d ' ')
+  default_branch=$(git branch  | grep '^* ' | cut -f 2 -d ' ') || default_branch=""
 
 else
   echo "repo_type=normal ( bare / normal )"
   git_dir=".git"
   pack_dir=".git/objects"
   branch_remote_option="-r"
-  default_branch=$(git branch -r |  grep -q origin/HEAD | cut -f 5 -d ' ')
+  default_branch=$(git branch -r | grep origin/HEAD | cut -f 5 -d ' ') || default_branch=""
 fi
 [[ ${invest_remote_branches:-} == "" ]] && invest_remote_branches=true
 if [[ ${default_branch:-} == "" ]]; then
