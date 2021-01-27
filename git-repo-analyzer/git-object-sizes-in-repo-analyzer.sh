@@ -7,8 +7,6 @@ set -eu -o pipefail
 [[ ${repack:-} == "" ]] && repack=true
 echo "repack=$repack"
 
-[[ ${invest_remote_branches:-} == "" ]] && invest_remote_branches=true
-echo "invest_remote_branches=$invest_remote_branches"
 
 [[ -t 0 ]] && interactive=true || interactive=false
 echo "interactive=$interactive"
@@ -75,15 +73,22 @@ if [[ $(git rev-parse --is-bare-repository) == true ]]; then
   pack_dir="./objects"
   git_dir="."
   branch_remote_option=""
-  default_branch=$(git branch  | grep '^* ' | cut -f 2 -d ' ')
+  default_branch=$(git branch  | grep -q '^* ' | cut -f 2 -d ' ')
 
 else
   echo "repo_type=normal ( bare / normal )"
   git_dir=".git"
   pack_dir=".git/objects"
   branch_remote_option="-r"
-  default_branch=$(git branch -r |  grep origin/HEAD | cut -f 5 -d ' ')
+  default_branch=$(git branch -r |  grep -q origin/HEAD | cut -f 5 -d ' ')
 fi
+[[ ${invest_remote_branches:-} == "" ]] && invest_remote_branches=true
+if [[ ${default_branch:-} == "" ]]; then
+  echo "INFO: default branch not found - do not investigate branches"
+  invest_remote_branches=false
+fi
+echo "invest_remote_branches=$invest_remote_branches"
+
 echo
 export pack_dir
 
@@ -186,7 +191,7 @@ if [[ ${invest_remote_branches} == true ]]; then
                                   "$( git log --oneline --format=%H $(git merge-base ${default_branch} ${branch} )..${branch} | wc -l )" \
                                   "$( git diff-tree -r $(git merge-base ${default_branch} ${branch} )..${branch} | cut -f 4- -d ' ' | wc -l )" \
                                   "$( git log --oneline --decorate -1 ${branch} )" \
-                                | tee -a ${file_output_branch_leaves}
+                                | tee -a "${file_output_branch_leaves}"
       else
         printf "EMBEDDED: %s - skip : %s\n\n" "${branch}" "$( git log --oneline --decorate -1 ${branch} )" | tee -a "${file_output_branch_embedded}"
         continue
@@ -201,7 +206,7 @@ if [[ ${invest_remote_branches} == true ]]; then
         [[ ${progress:-} == "true" ]] && printf "."
       done < <( git diff-tree -r $(git merge-base ${default_branch} ${branch} )..${branch} | cut -f 4- -d ' ')
       printf "\n"
-    done < <( git branch ${branch_remote_option} | cut -f 3 -d ' '  | grep -v "origin/HEAD$")
+    done < <( git branch ${branch_remote_option} | cut -f 3 -d ' '  | grep -q -v "origin/HEAD$")
     printf "\nMake tagged branches lists: "
     grep " (tag: " "${file_output_branch_leaves}" > "${file_output_branch_leaves_tagged}" 2> /dev/null || echo "INFO: No leaf branches with tags"
     grep " (tag: " "${file_output_branch_embedded}" > "${file_output_branch_embedded_tagged}" 2> /dev/null || echo "INFO: No embedded branches with tags"
