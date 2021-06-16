@@ -233,15 +233,19 @@ function delete_repo () {
         echo "Please set repo name as parameter 3"
         return 1
     fi
+    if [[ -z $4 ]] ; then
+        echo "Please set netrc file as parameter 4"
+        return 1
+    fi
     local _bitbucket_url=$1
     local _project=$2
     local _repo=$3
-    curl --fail -D- --insecure --netrc-file ~/.netrc -X DELETE ${_bitbucket_url}/rest/api/1.0/projects/${_project}/repos/${_repo}
-
+    local _netrc_file="$4"
+    curl --fail -D- --insecure --netrc-file ${_netrc_file} -X DELETE ${_bitbucket_url}/rest/api/1.0/projects/${_project}/repos/${_repo}
 }
 
-function repo_git_lfs_enable(){
-    # Fixme: https://jira.atlassian.com/browse/BSERV-8935
+function repo_git_lfs_enable () {
+    # https://jira.atlassian.com/browse/BSERV-8935
     #There's actually an undocumented endpoint for interacting with LFS. It's rough and clearly not polished, but it works.
     # rest/git-lfs/admin/projects/<key>/repos/<slug>/enabled
     # GET will return a 200 if its enabled, 404 if it's disabled.
@@ -259,10 +263,13 @@ function repo_git_lfs_enable(){
         echo "Please set repo name as parameter 3"
         return 1
     fi
+    if [[ -z $4 ]] ; then
+        echo "Please set netrc file as parameter 4"
+        return 1
+    fi
     local _bitbucket_url=$1
     local _project=$2
     local _repo=$3
-    curl --fail -D- --insecure --netrc-file ~/.netrc -X DELETE ${_bitbucket_url}/rest/api/1.0/projects/${_project}/repos/${_repo}
-
-    rest/git-lfs/admin/projects/<key>/repos/<slug>/enabled
+    local _netrc_file=$4
+    curl --fail --insecure --netrc-file ${_netrc_file} -X PUT -H Content-Type:application/json -o - --url ${_bitbucket_url}/rest/git-lfs/admin/projects/${_project}/repos/${_repo}/enabled
 }
