@@ -74,7 +74,6 @@ if [[ $(git rev-parse --is-bare-repository) == true ]]; then
   git_dir="."
   branch_remote_option=""
   default_branch=$(git branch  | grep '^* ' | cut -f 2 -d ' ') || default_branch=""
-
 else
   echo "repo_type=normal ( bare / normal )"
   git_dir=".git"
@@ -82,13 +81,14 @@ else
   branch_remote_option="-r"
   default_branch=$(git branch -r | grep origin/HEAD | cut -f 5 -d ' ') || default_branch=""
 fi
+
 [[ ${invest_remote_branches:-} == "" ]] && invest_remote_branches=true
 if [[ ${default_branch:-} == "" ]]; then
   echo "INFO: default branch not found - do not investigate branches"
   invest_remote_branches=false
 fi
 echo "invest_remote_branches=$invest_remote_branches"
-
+ 
 echo
 export pack_dir
 
@@ -176,44 +176,40 @@ echo "Done"
 declare -A head_blobs_map
 if [[ ${invest_remote_branches} == true ]]; then
   echo "Reading branch  blobs.."
-  if [[ $(git branch ${branch_remote_option}) != "" ]] ;then
-    while read -r branch; do
-      if [[ $branch == "" ]] ; then
-        echo "branch variable is empty - skip"
-        continue
-      fi
-      # shellcheck disable=SC2034
-      # shellcheck disable=SC2046
-      read -r first second <<< "$(git rev-list --all --children $branch | grep ^$(git log -1 --format=%H $branch))"
-      if [[ ${second:-} == "" ]] ; then
-        printf "LEAF: %s : ( #commits/files: %s/%s ) : %s\n" \
-                                  "${branch}" \
-                                  "$( git log --oneline --format=%H $(git merge-base ${default_branch} ${branch} )..${branch} | wc -l )" \
-                                  "$( git diff-tree -r $(git merge-base ${default_branch} ${branch} )..${branch} | cut -f 4- -d ' ' | wc -l )" \
-                                  "$( git log --oneline --decorate -1 ${branch} )" \
-                                | tee -a "${file_output_branch_leaves}"
-      else
-        printf "EMBEDDED: %s - skip : %s\n\n" "${branch}" "$( git log --oneline --decorate -1 ${branch} )" | tee -a "${file_output_branch_embedded}"
-        continue
-      fi
-      # shellcheck disable=SC2046
-      while read -r head_blob_line; do
-        head_blob_line_array=($head_blob_line)
-        head_blob=${head_blob_line_array[0]}
-        head_file=${head_blob_line_array[1]}
-        head_file=${head_blob_line_array[2]}
-        head_blobs_map["${head_blob}"]="${head_file}"
-        [[ ${progress:-} == "true" ]] && printf "."
-      done < <( git diff-tree -r $(git merge-base ${default_branch} ${branch} )..${branch} | cut -f 4- -d ' ')
-      printf "\n"
-    done < <( git branch ${branch_remote_option} | cut -f 3 -d ' '  | grep -q -v "origin/HEAD$")
-    printf "\nMake tagged branches lists: "
-    grep " (tag: " "${file_output_branch_leaves}" > "${file_output_branch_leaves_tagged}" 2> /dev/null || echo "INFO: No leaf branches with tags"
-    grep " (tag: " "${file_output_branch_embedded}" > "${file_output_branch_embedded_tagged}" 2> /dev/null || echo "INFO: No embedded branches with tags"
-    printf "Done\n\n"
-  else
-    printf "No remote branches found - skip\n"
-  fi
+  while read -r branch; do
+    if [[ $branch == "" ]] ; then
+      echo "branch variable is empty - skip"
+      continue
+    fi
+    # shellcheck disable=SC2034
+    # shellcheck disable=SC2046
+    read -r first second <<< "$(git rev-list --all --children $branch | grep ^$(git log -1 --format=%H $branch))"
+    if [[ ${second:-} == "" ]] ; then
+      printf "LEAF: %s : ( #commits/files: %s/%s ) : %s\n" \
+                                "${branch}" \
+                                "$( git log --oneline --format=%H $(git merge-base ${default_branch} ${branch} )..${branch} | wc -l )" \
+                                "$( git diff-tree -r $(git merge-base ${default_branch} ${branch} )..${branch} | cut -f 4- -d ' ' | wc -l )" \
+                                "$( git log --oneline --decorate -1 ${branch} )" \
+                              | tee -a "${file_output_branch_leaves}"
+    else
+      printf "EMBEDDED: %s - skip : %s\n\n" "${branch}" "$( git log --oneline --decorate -1 ${branch} )" | tee -a "${file_output_branch_embedded}"
+      continue
+    fi
+    # shellcheck disable=SC2046
+    while read -r head_blob_line; do
+      head_blob_line_array=($head_blob_line)
+      head_blob=${head_blob_line_array[0]}
+      head_file=${head_blob_line_array[1]}
+      head_file=${head_blob_line_array[2]}
+      head_blobs_map["${head_blob}"]="${head_file}"
+      [[ ${progress:-} == "true" ]] && printf "."
+    done < <( git diff-tree -r $(git merge-base ${default_branch} ${branch} )..${branch} | cut -f 4- -d ' ')
+    printf "\n"
+  done < <( git branch ${branch_remote_option} | grep -v '^*' | cut -f 3 -d ' ' | grep -v 'origin/HEAD$')
+  printf "\nMake tagged branches lists: "
+  grep " (tag: " "${file_output_branch_leaves}" > "${file_output_branch_leaves_tagged}" 2> /dev/null || echo "INFO: No leaf branches with tags"
+  grep " (tag: " "${file_output_branch_embedded}" > "${file_output_branch_embedded_tagged}" 2> /dev/null || echo "INFO: No embedded branches with tags"
+  printf "Done\n\n"
 else
   printf "invest_remote_branches != true (%s) - skip\n" "$invest_remote_branches"
 fi
