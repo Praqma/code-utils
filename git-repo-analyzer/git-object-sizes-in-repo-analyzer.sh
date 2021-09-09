@@ -240,7 +240,7 @@ touch "${WORKSPACE}/bigtosmall_errors.txt"
 progress_bar_init
 while read -r file; do
   progress_bar_update
-  while read -r blob size path_file; do
+  while IFS= read -r -d $'\0' blob size path_file; do
     [[ "$file" != "$path_file" ]] && (echo "File: ${file} and path_file: ${path_file} are different!!! - something is wrong" && exit 10 )
     prefix=" "
     if [[ "${head_blobs_map[${blob}]:-}" == "$path_file" ]]; then
@@ -301,13 +301,15 @@ done < "${WORKSPACE}/bigtosmall_revisions_join_uniq.txt"
 printf "\n\n"
 
 echo "Investigate if issues occured"
-if [[ ! -s "${WORKSPACE}/bigtosmall_errors.txt"  ]]; then
+if [[ -s "${WORKSPACE}/bigtosmall_errors.txt"  ]]; then
+  ls -la ${WORKSPACE}/bigtosmall_errors.txt
   echo "There are errors during analyzing the files: ${WORKSPACE}/bigtosmall_errors.txt"
   /usr/bin/sort -u "${WORKSPACE}/bigtosmall_errors.txt"
 else
   echo ".. no issues in ${WORKSPACE}/bigtosmall_errors.txt"
 fi
-if [[ ! -s "${WORKSPACE}/bigtosmall_errors_revision.txt" ]]; then
+if [[ -s "${WORKSPACE}/bigtosmall_errors_revision.txt" ]]; then
+  ls -la ${WORKSPACE}/bigtosmall_errors_revision.txt
   echo "There are errors during analyzing the files: ${WORKSPACE}/bigtosmall_errors_revision.txt"
   /usr/bin/sort -u "${WORKSPACE}/bigtosmall_errors_revision.txt"
 else
