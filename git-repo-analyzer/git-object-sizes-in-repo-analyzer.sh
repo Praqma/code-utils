@@ -237,11 +237,20 @@ fi
 echo "Generate file sorted list:"
 touch "${WORKSPACE}/bigtosmall_errors.txt"
 
+regex_idx_list='^([a-f0-9]{40}) ([0-9]+) (.*)$'
+
 progress_bar_init
 while read -r file; do
   progress_bar_update
-  while IFS= read -r -d $'\0' blob size path_file; do
-    [[ "$file" != "$path_file" ]] && (echo "File: ${file} and path_file: ${path_file} are different!!! - something is wrong" && exit 10 )
+  while IFS=$'\n' read -r line; do
+	if [[ "${line}" =~ $regex_idx_list ]] ; then
+	  blob=${BASH_REMATCH[1]}
+	  size=${BASH_REMATCH[2]}
+	  path_file=${BASH_REMATCH[3]}
+	else
+      exit 1
+	fi
+	[[ "$file" != "$path_file" ]] && (echo "File: ${file} and path_file: ${path_file} are different!!! - something is wrong" && exit 10 )
     prefix=" "
     if [[ "${head_blobs_map[${blob}]:-}" == "$path_file" ]]; then
       prefix="R"
@@ -280,7 +289,14 @@ touch "${WORKSPACE}/bigtosmall_errors_revision.txt"
 progress_bar_init
 while read -r file; do
   progress_bar_update
-  while read -r blob size path_file; do
+  while IFS=$'\n' read -r line; do
+	if [[ "${line}" =~ $regex_idx_list ]] ; then
+	  blob=${BASH_REMATCH[1]}
+	  size=${BASH_REMATCH[2]}
+	  path_file=${BASH_REMATCH[3]}
+	else
+      exit 1
+	fi
     [[ $file != "$path_file" ]] && (echo "File: ${file} and path_file: ${path_file} are different!!! - something is wrong" && exit 11 )
     prefix=" "
     if [[ "${head_blobs_map[${blob}]:-}" == "$file" ]]; then
