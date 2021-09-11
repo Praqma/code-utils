@@ -173,9 +173,25 @@ echo "Done"
 
 
 
-declare -A head_blobs_map
+regex_lstree_list='^([a-f0-9]{40})[[:space:]]+(.*)$'
+declare -A default_blobs_map
+declare -A branches_blobs_map
 if [[ ${invest_remote_branches} == true ]]; then
-  echo "Reading branch  blobs.."
+  echo "Reading blob in default branch: ${default_branch}"
+  while read -r lstree_blob_line; do
+    if [[ "${lstree_blob_line}" =~ $regex_lstree_list ]] ; then
+        default_blob=${BASH_REMATCH[1]}
+        default_file=${BASH_REMATCH[2]}
+        default_blobs_map["${default_blob}"]="${default_file}"
+        [[ ${progress:-} == "true" ]] && printf "."
+    else
+        echo "ERROR: parsing lstree list: $lstree_blob_line"
+        echo "       using regex:         $regex_lstree_list"
+        exit 1
+    fi
+  done < <( git ls-tree -r ${default_branch} | cut -f 3- -d ' ')
+  [[ ${progress:-} == "true" ]] && echo
+  echo "Reading branches diff blobs.."
   while read -r branch; do
     if [[ $branch == "" ]] ; then
       echo "branch variable is empty - skip"
@@ -197,12 +213,13 @@ if [[ ${invest_remote_branches} == true ]]; then
     fi
     # shellcheck disable=SC2046
     while read -r head_blob_line; do
-      head_blob_line_array=($head_blob_line)
-      head_blob=${head_blob_line_array[0]}
-      head_file=${head_blob_line_array[1]}
-      head_file=${head_blob_line_array[2]}
-      head_blobs_map["${head_blob}"]="${head_file}"
-      [[ ${progress:-} == "true" ]] && printf "."
+      branch_blob_line_array=($head_blob_line)
+      if [[ ${branch_blob_line_array[0]} != "0000000000000000000000000000000000000000" ]]; then 
+          branch_blob=${branch_blob_line_array[0]}
+          branch_file=${branch_blob_line_array[2]}
+          branches_blobs_map["${branch_blob}"]="${branch_file}"
+          [[ ${progress:-} == "true" ]] && printf "."
+      fi
     done < <( git diff-tree -r $(git merge-base ${default_branch} ${branch} )..${branch} | cut -f 4- -d ' ')
     printf "\n"
   done < <( git branch ${branch_remote_option} | grep -v '^*' | cut -f 3 -d ' ' | grep -v 'origin/HEAD$')
@@ -242,18 +259,30 @@ regex_idx_list='^([a-f0-9]{40}) ([0-9]+) (.*)$'
 progress_bar_init
 while read -r file; do
   progress_bar_update
+  prefix_total=" "
+  size_total=0
+  count=0
   while IFS=$'\n' read -r line; do
-	if [[ "${line}" =~ $regex_idx_list ]] ; then
-	  blob=${BASH_REMATCH[1]}
-	  size=${BASH_REMATCH[2]}
-	  path_file=${BASH_REMATCH[3]}
-	else
-      exit 1
-	fi
-	[[ "$file" != "$path_file" ]] && (echo "File: ${file} and path_file: ${path_file} are different!!! - something is wrong" && exit 10 )
     prefix=" "
-    if [[ "${head_blobs_map[${blob}]:-}" == "$path_file" ]]; then
-      prefix="R"
+    if [[ "${line}" =~ $regex_idx_list ]] ; then
+      blob=${BASH_REMATCH[1]}
+      size=${BASH_REMATCH[2]}
+      size_total=$(( $size_total + $size ))
+      path_file=${BASH_REMATCH[3]}
+      count=$(( $count + 1 ))
+    else
+      echo "ERROR: Cannot parse ${file_tmp_bigtosmall_join}"
+      exit 1
+    fi
+    [[ "${file}" != "${path_file}" ]] && (echo "File: ${file} and path_file: ${path_file} are different!!! - something is wrong" && exit 10 )
+    if [[ "${default_blobs_map[${blob}]:-}" == "$path_file" ]]; then
+        prefix="H"
+        prefix_total="H"
+    else
+        if [[ "${branches_blobs_map[${blob}]:-}" == "$path_file" ]]; then
+          [[ ${prefix:-} == " " ]] && prefix="B"
+          [[ ${prefix_total:-} == " " ]] && prefix_total="B"
+        fi
     fi
     echo "$prefix $blob $size $path_file" >> "${file_output_sorted_size_files}"
   done < <( file="${file//'.'/\\.}" && \
@@ -266,8 +295,9 @@ while read -r file; do
             file="${file//']'/\\]}" && \
             file="${file//$/\\$}"  && \
             grep -E " ${file}$" "${file_tmp_bigtosmall_join}" || echo "ERROR: $file: something went wrong" >> "${WORKSPACE}/bigtosmall_errors.txt")
-
+  printf "%s %s %s %s\n" "$size_total" "${prefix_total}" "$count" "$path_file">> "${file_tmp_bigtosmall_join}.total.tmp"
 done < "${WORKSPACE}/bigtosmall_join_uniq.txt"
+/usr/bin/sort -u -h -r "${file_tmp_bigtosmall_join}.total.tmp" > "${file_tmp_bigtosmall_join}.total-sorted.txt"
 printf "\n\n"
 
 touch "${file_output_sorted_size_files_revisions}"
@@ -289,18 +319,31 @@ touch "${WORKSPACE}/bigtosmall_errors_revision.txt"
 progress_bar_init
 while read -r file; do
   progress_bar_update
+  prefix_total=" "
+  size_total=0
+  count=0
   while IFS=$'\n' read -r line; do
-	if [[ "${line}" =~ $regex_idx_list ]] ; then
-	  blob=${BASH_REMATCH[1]}
-	  size=${BASH_REMATCH[2]}
-	  path_file=${BASH_REMATCH[3]}
-	else
-      exit 1
-	fi
-    [[ $file != "$path_file" ]] && (echo "File: ${file} and path_file: ${path_file} are different!!! - something is wrong" && exit 11 )
     prefix=" "
-    if [[ "${head_blobs_map[${blob}]:-}" == "$file" ]]; then
-      prefix="R"
+    if [[ "${line}" =~ $regex_idx_list ]] ; then
+      blob=${BASH_REMATCH[1]}
+      size=${BASH_REMATCH[2]}
+      size_total=$(( $size_total + $size ))
+      path_file=${BASH_REMATCH[3]}
+      count=$(( $count + 1 ))
+    else
+      echo "ERROR: reading : $line"
+      echo "       regex :   $regex_idx_list"
+      exit 1
+    fi
+    [[ $file != "$path_file" ]] && (echo "File: ${file} and path_file: ${path_file} are different!!! - something is wrong" && exit 11 )
+    if [[ "${default_blobs_map[${blob}]:-}" == "$path_file" ]]; then
+        prefix="H"
+        prefix_total="H"
+    else
+        if [[ "${branches_blobs_map[${blob}]:-}" == "$path_file" ]]; then
+          [[ ${prefix:-} == " " ]] && prefix="B"
+          [[ ${prefix_total:-} == " " ]] && prefix_total="B"
+        fi
     fi
     echo "$prefix $blob $size $path_file" >> "${file_output_sorted_size_files_revisions}"
   done < <( file="${file//'.'/\\.}" && \
@@ -313,7 +356,9 @@ while read -r file; do
             file="${file//']'/\\]}" && \
             file="${file//$/\\$}"  && \
             grep -E " ${file}$" "${WORKSPACE}/bigtosmall_revisions_join.txt"  || echo "ERROR: $file: something went wrong" >> "${WORKSPACE}/bigtosmall_errors_revision.txt")
+  printf "%s %s %s %s\n" "$size_total" "${prefix_total}" "$count" "$path_file">> "${file_tmp_bigtosmall_join}.total-revisions.tmp"
 done < "${WORKSPACE}/bigtosmall_revisions_join_uniq.txt"
+/usr/bin/sort -u -h -r "${file_tmp_bigtosmall_join}.total-revisions.tmp" > "${file_tmp_bigtosmall_join}.total-revisions-sorted.txt"
 printf "\n\n"
 
 echo "Investigate if issues occured"
