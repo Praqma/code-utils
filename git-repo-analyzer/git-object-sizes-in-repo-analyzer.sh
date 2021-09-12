@@ -120,8 +120,10 @@ file_output_branch_leaves_tagged="${WORKSPACE}/branches_leaves_tagged.txt" && rm
 
 
 printf "Clean old temp packs(if present): \n"
-find ${pack_dir} -name '.tmp*.pack' -o -name '.tmp*.idx'
-find ${pack_dir} -name '.tmp*.pack' -o -name '.tmp*.idx' | xargs --no-run-if-empty rm -f
+for idx in $(find ${pack_dir} -name '.tmp*.pack' -o -name '.tmp*.idx') ; do
+ echo "$idx"
+ rm -f $idx
+done
 printf "Done\n\n"
 
 pack_file=$(find ${pack_dir} -name '*.idx')
