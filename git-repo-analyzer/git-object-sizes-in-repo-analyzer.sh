@@ -207,7 +207,7 @@ if [[ ${invest_remote_branches} == true ]]; then
                                 "${branch}" \
                                 "$( git log --oneline --format=%H $(git merge-base ${default_branch} ${branch} )..${branch} | wc -l )" \
                                 "$( git diff-tree -r $(git merge-base ${default_branch} ${branch} )..${branch} | cut -f 4- -d ' ' | wc -l )" \
-                                "$( git log --oneline --decorate -1 ${branch} )" \
+                                "$( git log --oneline --format='%h,%cs%d : %s' ${branch} -1 )" \
                               | tee -a "${file_output_branch_leaves}"
     else
       printf "EMBEDDED: %s - skip : %s\n\n" "${branch}" "$( git log --oneline --decorate -1 ${branch} )" | tee -a "${file_output_branch_embedded}"
