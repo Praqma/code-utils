@@ -23,10 +23,17 @@ rm -rf ${WORKSPACE:-.}/$(echo $url | cut -d / -f 3 | cut -d : -f 1)*.*
 printf "%-60s : %-20s : %-10s : %-10s : %-5s : %-5s %s\n"  "project/repo-path" "bytes" "mbytes" "gbytes" "LFS" "repo-id" "repo-URL"
 printf "%-60s : %-20s : %-10s : %-10s : %-5s : %-5s %s\n"  "project/repo-path" "bytes" "mbytes" "gbytes" "LFS" "repo-id" "repo-URL" > $output_file_name
 IFS=$'\r\n'
-export server_size_mb=0
+server_size_mb=0
+projects_count=0
+projects_slugs_counts=0
 for bitbucket_project in $(curl --fail --silent --insecure --netrc-file ${netrc_file} -X GET -H Content-Type:application/json -o - --url ${url}/rest/api/1.0/projects?limit=${limit} | jq -r .values[].key ); do
   project_size_mb=0
+  projects_count=$(( ${projects_count:-0} + 1 ))
   for slug in $(curl --fail --silent --insecure --netrc-file ${netrc_file} -X GET -H Content-Type:application/json -o - --url ${url}/rest/api/1.0/projects/${bitbucket_project}/repos?limit=${limit} | jq -r .values[].slug ); do
+    
+    slugs_count=$(( ${slugs_count:-0} + 1 ))
+    projects_slugs_counts=$(( ${projects_slugs_counts:-0} + 1 ))
+
     repo_id=$(curl --fail --silent --insecure --netrc-file ${netrc_file} -X GET -H Content-Type:application/json -o - --url ${url}/rest/api/1.0/projects/${bitbucket_project}/repos/${slug} | jq .id )
     repo_url=${url}/projects/${bitbucket_project}/repos/${slug}
     size_bytes=$(curl --fail --silent --insecure --netrc-file ${netrc_file} -X GET -H Content-Type:application/json -o - --url ${url}/projects/${bitbucket_project}/repos/${slug}/sizes | jq -r .repository)
@@ -44,13 +51,16 @@ for bitbucket_project in $(curl --fail --silent --insecure --netrc-file ${netrc_
 
     printf "%-60s : %-20s : %-10s : %-10s : %-5s : %-5s : %s\n"  "${bitbucket_project}/repos/$slug" "${size_bytes}" "${size_mb}" "${size_gb}" "${lfs_status}" "${repo_id}" "${repo_url}"
     printf "%-60s : %-20s : %-10s : %-10s : %-5s : %-5s : %s\n"  "${bitbucket_project}/repos/$slug" "${size_bytes}" "${size_mb}" "${size_gb}" "${lfs_status}" "${repo_id}" "${repo_url}" >> $output_file_name
-    printf "$slug" >> ${WORKSPACE:-.}/$(echo $url | cut -d / -f 3 | cut -d : -f 1).${bitbucket_project}.repos.txt
+    printf "${bitbucket_project}/$slug\n" >> ${WORKSPACE:-.}/$(echo $url | cut -d / -f 3 | cut -d : -f 1).${bitbucket_project}.repos.txt
     unset _lfs_exit_code
   done
-  printf "Project size(MB): ${bitbucket_project} : ${project_size_mb}\n" > ${WORKSPACE:-.}/$(echo $url | cut -d / -f 3 | cut -d : -f 1).${bitbucket_project}.size.mb.txt
-  printf "Project size(MB): ${bitbucket_project} : ${project_size_mb}\n"
-  server_size_mb=$(( ${server_size_mb:-0} + ${project_size_mb} ))
+  printf "Project count/size(MB): ${bitbucket_project} : ${slugs_count:-0} / ~${project_size_mb:-0} MB\n" > ${WORKSPACE:-.}/$(echo $url | cut -d / -f 3 | cut -d : -f 1).${bitbucket_project}.size.mb.txt
+  printf "Project count/size(MB): ${bitbucket_project} : ${slugs_count:-0} / ~${project_size_mb:-0} MB\n\n"
+  server_size_mb=$(( ${server_size_mb:-0} + ${project_size_mb:-0} ))
+  unset slugs_count
 done
-printf "Project size: ${bitbucket_project} : ${server_size_mb}\n" > ${WORKSPACE:-.}/$(echo $url | cut -d / -f 3 | cut -d : -f 1).size.mb.txt
+printf "Projects-count/repos-count/size(MB):: ${projects_count:-0} / ${projects_slugs_counts:-0} / ~${server_size_mb:-0} MB\n" > ${WORKSPACE:-.}/$(echo $url | cut -d / -f 3 | cut -d : -f 1).size.mb.txt
 cat ${WORKSPACE:-.}/$(echo $url | cut -d / -f 3 | cut -d : -f 1).size.mb.txt
+
+cat ${WORKSPACE:-.}/$(echo $url | cut -d / -f 3 | cut -d : -f 1).*.repos.txt
 
