@@ -14,10 +14,13 @@ netrc_file=${2}
 [[ -f "${netrc_file}" ]] || { echo "Netrc file: ${netrc_file} does not exist"  && exit 1; }
 limit=100000
 
-output_file_name="$(echo $url | cut -d / -f 3 | cut -d : -f 1).projects.repos.txt"
+output_file_name="${WORKSPACE:-.}/$(echo $url | cut -d / -f 3 | cut -d : -f 1).projects.repos.txt"
 
-rm -rf $(echo $url | cut -d / -f 3 | cut -d : -f 1)*.*
+echo "output_file_name : ${WORKSPACE:-.}/${output_file_name}"
 
+rm -rf ${WORKSPACE:-.}/$(echo $url | cut -d / -f 3 | cut -d : -f 1)*.*
+
+printf "%-60s : %-20s : %-10s : %-10s : %-5s : %-5s %s\n"  "project/repo-path" "bytes" "mbytes" "gbytes" "LFS" "repo-id" "repo-URL"
 printf "%-60s : %-20s : %-10s : %-10s : %-5s : %-5s %s\n"  "project/repo-path" "bytes" "mbytes" "gbytes" "LFS" "repo-id" "repo-URL" > $output_file_name
 IFS=$'\r\n'
 for bitbucket_project in $(curl --fail --silent --insecure --netrc-file ${netrc_file} -X GET -H Content-Type:application/json -o - --url ${url}/rest/api/1.0/projects?limit=${limit} | jq -r .values[].key ); do
@@ -34,9 +37,10 @@ for bitbucket_project in $(curl --fail --silent --insecure --netrc-file ${netrc_
     if [[ ${_lfs_exit_code} -eq 0 ]]; then
       lfs_status="+"
     fi
-    unset _lfs_exit_code
+
     printf "%-60s : %-20s : %-10s : %-10s : %-5s : %-5s : %s\n"  "${bitbucket_project}/repos/$slug" "${size_bytes}" "${size_mb}" "${size_gb}" "${lfs_status}" "${repo_id}" "${repo_url}"
     printf "%-60s : %-20s : %-10s : %-10s : %-5s : %-5s : %s\n"  "${bitbucket_project}/repos/$slug" "${size_bytes}" "${size_mb}" "${size_gb}" "${lfs_status}" "${repo_id}" "${repo_url}" >> $output_file_name
-    printf "$slug" >> $(echo $url | cut -d / -f 3 | cut -d : -f 1).${bitbucket_project}.repos.txt
+    printf "$slug" >> ${WORKSPACE:-.}/$(echo $url | cut -d / -f 3 | cut -d : -f 1).${bitbucket_project}.repos.txt
+    unset _lfs_exit_code
   done
 done
