@@ -47,9 +47,9 @@ for bitbucket_project in $(curl --fail --silent --insecure --netrc-file ${netrc_
     printf "$slug" >> ${WORKSPACE:-.}/$(echo $url | cut -d / -f 3 | cut -d : -f 1).${bitbucket_project}.repos.txt
     unset _lfs_exit_code
   done
-  printf "Project size: ${bitbucket_project} : ${project_size_mb}\n" > ${WORKSPACE:-.}/$(echo $url | cut -d / -f 3 | cut -d : -f 1).${bitbucket_project}.size.mb.txt
-  printf "Project size: ${bitbucket_project} : ${project_size_mb}\n"
-  server_size_mb=$(( ${server_size_mb} + ${project_size_mb} ))
+  printf "Project size(MB): ${bitbucket_project} : ${project_size_mb}\n" > ${WORKSPACE:-.}/$(echo $url | cut -d / -f 3 | cut -d : -f 1).${bitbucket_project}.size.mb.txt
+  printf "Project size(MB): ${bitbucket_project} : ${project_size_mb}\n"
+  server_size_mb=$(( ${server_size_mb:-0} + ${project_size_mb} ))
 done
 printf "Project size: ${bitbucket_project} : ${server_size_mb}\n" > ${WORKSPACE:-.}/$(echo $url | cut -d / -f 3 | cut -d : -f 1).size.mb.txt
 cat ${WORKSPACE:-.}/$(echo $url | cut -d / -f 3 | cut -d : -f 1).size.mb.txt
