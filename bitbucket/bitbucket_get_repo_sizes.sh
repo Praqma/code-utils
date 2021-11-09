@@ -50,7 +50,7 @@ for bitbucket_project in $(curl --fail --silent --insecure --netrc-file ${netrc_
   printf "Project size: ${bitbucket_project} : ${project_size_mb}\n" > ${WORKSPACE:-.}/$(echo $url | cut -d / -f 3 | cut -d : -f 1).${bitbucket_project}.size.mb.txt
   printf "Project size: ${bitbucket_project} : ${project_size_mb}\n"
   server_size_mb=$(( ${server_size_mb} + ${project_size_mb} ))
-  unset ${server_size_mb}
+  unset server_size_mb
 done
 printf "Project size: ${bitbucket_project} : ${server_size_mb}\n" > ${WORKSPACE:-.}/$(echo $url | cut -d / -f 3 | cut -d : -f 1).size.mb.txt
 cat ${WORKSPACE:-.}/$(echo $url | cut -d / -f 3 | cut -d : -f 1).size.mb.txt
