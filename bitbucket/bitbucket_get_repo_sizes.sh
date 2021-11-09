@@ -23,7 +23,7 @@ rm -rf ${WORKSPACE:-.}/$(echo $url | cut -d / -f 3 | cut -d : -f 1)*.*
 printf "%-60s : %-20s : %-10s : %-10s : %-5s : %-5s %s\n"  "project/repo-path" "bytes" "mbytes" "gbytes" "LFS" "repo-id" "repo-URL"
 printf "%-60s : %-20s : %-10s : %-10s : %-5s : %-5s %s\n"  "project/repo-path" "bytes" "mbytes" "gbytes" "LFS" "repo-id" "repo-URL" > $output_file_name
 IFS=$'\r\n'
-server_size_mb=0
+export server_size_mb=0
 for bitbucket_project in $(curl --fail --silent --insecure --netrc-file ${netrc_file} -X GET -H Content-Type:application/json -o - --url ${url}/rest/api/1.0/projects?limit=${limit} | jq -r .values[].key ); do
   project_size_mb=0
   for slug in $(curl --fail --silent --insecure --netrc-file ${netrc_file} -X GET -H Content-Type:application/json -o - --url ${url}/rest/api/1.0/projects/${bitbucket_project}/repos?limit=${limit} | jq -r .values[].slug ); do
@@ -50,7 +50,6 @@ for bitbucket_project in $(curl --fail --silent --insecure --netrc-file ${netrc_
   printf "Project size: ${bitbucket_project} : ${project_size_mb}\n" > ${WORKSPACE:-.}/$(echo $url | cut -d / -f 3 | cut -d : -f 1).${bitbucket_project}.size.mb.txt
   printf "Project size: ${bitbucket_project} : ${project_size_mb}\n"
   server_size_mb=$(( ${server_size_mb} + ${project_size_mb} ))
-  unset project_size_mb
 done
 printf "Project size: ${bitbucket_project} : ${server_size_mb}\n" > ${WORKSPACE:-.}/$(echo $url | cut -d / -f 3 | cut -d : -f 1).size.mb.txt
 cat ${WORKSPACE:-.}/$(echo $url | cut -d / -f 3 | cut -d : -f 1).size.mb.txt
