@@ -26,14 +26,14 @@ else
   netrc_file=${3}
 fi
 
-if [[ "${4}X" == "X" ]] ; then
+if [[ "${4:-}X" == "X" ]] ; then
   echo "Please parse bitbucket_url as parameter 4"
   exit 1
 else
     bitbucket_url="${4}"
 fi
 
-if [[ "${5}X" == "X" ]] ; then
+if [[ "${5:-}X" == "X" ]] ; then
   echo "Please parse ci_user as parameter 5 for branch permissions if needed"
 else
   ci_user="${5:-}"
