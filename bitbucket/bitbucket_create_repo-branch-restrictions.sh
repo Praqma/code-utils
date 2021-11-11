@@ -56,7 +56,7 @@ for repo_name in $(echo ${repo_names} | sed -e 's/,/ /g'); do
   echo " START: $repo_name "
   echo "#################################################################"
   create_repo ${bitbucket_url} ${bitbucket_project} ${repo_name} "--mirror"
-  repo_prereceive_force_push_hook_enable $repo_name $bitbucket_project
+#  repo_prereceive_force_push_hook_enable $repo_name $bitbucket_project
 
 #  create_permission_set_restricted_groups "heads/*" "$bitbucket_admin_group" $bitbucket_project $repo_name   # only admin creates new 'root' branches and 'name-spaces'
 #
