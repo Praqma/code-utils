@@ -110,14 +110,20 @@ file_tmp_bigobjects_revisions="${WORKSPACE}/bigobjects_revisions.tmp" && rm -f "
 file_tmp_bigtosmall_join="${WORKSPACE}/bigobjects_join.tmp" && rm -f "${file_tmp_bigtosmall_join}"
 file_tmp_bigtosmall_join_revisions="${WORKSPACE}/bigobjects_join_revisions.tmp" && rm -f "${file_tmp_bigtosmall_join_revisions}"
 
+file_tmp_bigtosmall_join_uniq="${WORKSPACE}/bigtosmall_join_uniq.tmp" && rm -rf "${file_tmp_bigtosmall_join_uniq}"
+
+file_tmp_bigtosmall_join_total="${WORKSPACE}/bigobjects_join_total.tmp" && rm -f "${file_tmp_bigtosmall_join_total}"
+file_tmp_bigtosmall_join_total_revisions="${WORKSPACE}/bigobjects_join_total_revisions.tmp" && rm -f "${file_tmp_bigtosmall_join_total_revisions}"
+
 file_output_sorted_size_files="${WORKSPACE}/bigtosmall_sorted_size_files.txt" && rm -f "${file_output_sorted_size_files}"
 file_output_sorted_size_files_revisions="${WORKSPACE}/bigtosmall_sorted_size_files_revisions.txt" && rm -f "${file_output_sorted_size_files_revisions}"
 file_output_branch_embedded="${WORKSPACE}/branches_embedded.txt" && rm -f "${file_output_branch_embedded}"
 file_output_branch_leaves="${WORKSPACE}/branches_leaves.txt" && rm -f "${file_output_branch_leaves}"
-file_output_branch_embedded_tagged="${WORKSPACE}/branches_embedded_tagged.txt" && rm -f "${file_output_branch_embedded_tagged}
-}"
+file_output_branch_embedded_tagged="${WORKSPACE}/branches_embedded_tagged.txt" && rm -f "${file_output_branch_embedded_tagged}"
 file_output_branch_leaves_tagged="${WORKSPACE}/branches_leaves_tagged.txt" && rm -f "${file_output_branch_leaves_tagged}"
 
+file_output_sorted_size_total="${WORKSPACE}/bigtosmall_sorted_size_total.txt" && rm -rf "${file_output_sorted_size_total}"
+file_output_sorted_size_total_revisions="${WORKSPACE}/bigtosmall_sorted_size_total_revisions.txt" && rm -rf "${file_output_sorted_size_total_revisions}"
 
 printf "Clean old temp packs(if present): \n"
 for idx in $(find ${pack_dir} -name '.tmp*.pack' -o -name '.tmp*.idx') ; do
@@ -244,10 +250,10 @@ if [[ ! $(grep -E "^[a-f0-9]{40}[[:space:]]blob[[:space:]]+[0-9]+[[:space:]][0-9
   printf "Amount of objects: %s\n" "$(wc -l < "${file_tmp_bigobjects}")"
   join <(sort "${file_tmp_bigobjects}") <(sort "${file_tmp_allfileshas}") | sort -k 3 -n -r | cut -f 1,3,6-  -d ' ' > "${file_tmp_bigtosmall_join}"
 
-  touch "${WORKSPACE}/bigtosmall_join_uniq.txt"
-  cat "${file_tmp_bigtosmall_join}" |  cut -d ' ' -f 3- > "${WORKSPACE}/bigtosmall_join_all.txt"
-  cat -n "${WORKSPACE}/bigtosmall_join_all.txt" | /usr/bin/sort -uk2 | /usr/bin/sort -n | cut -f2- > "${WORKSPACE}/bigtosmall_join_uniq.txt"
-  amount_total_unique=$(wc -l < "${WORKSPACE}/bigtosmall_join_uniq.txt")
+  touch "${file_tmp_bigtosmall_join_uniq}"
+  cat "${file_tmp_bigtosmall_join}" |  cut -d ' ' -f 3- > "${WORKSPACE}/bigtosmall_join_all.tmp"
+  cat -n "${WORKSPACE}/bigtosmall_join_all.tmp" | /usr/bin/sort -uk2 | /usr/bin/sort -n | cut -f2- > "${file_tmp_bigtosmall_join_uniq}"
+  amount_total_unique=$(wc -l < "${file_tmp_bigtosmall_join_uniq}")
   printf "Amount of unique <path>/<file>: %s\n" "${amount_total_unique}"
 else
   printf "Amount of unique <path>/<file>: 0 - skip\n"
@@ -297,20 +303,20 @@ while read -r file; do
             file="${file//']'/\\]}" && \
             file="${file//$/\\$}"  && \
             grep -E " ${file}$" "${file_tmp_bigtosmall_join}" || echo "ERROR: $file: something went wrong" >> "${WORKSPACE}/bigtosmall_errors.txt")
-  printf "%s %s %s %s\n" "$size_total" "${prefix_total}" "$count" "$path_file">> "${file_tmp_bigtosmall_join}.total.tmp"
-done < "${WORKSPACE}/bigtosmall_join_uniq.txt"
-/usr/bin/sort -u -h -r "${file_tmp_bigtosmall_join}.total.tmp" > "${file_tmp_bigtosmall_join}.total-sorted.txt"
+  printf "%s %s %s %s\n" "$size_total" "${prefix_total}" "$count" "$path_file">> "${file_tmp_bigtosmall_join_total}"
+done < "${file_tmp_bigtosmall_join_uniq}"
+/usr/bin/sort -u -h -r "${file_tmp_bigtosmall_join_total}" > "${file_output_sorted_size_total}"
 printf "\n\n"
 
 touch "${file_output_sorted_size_files_revisions}"
 echo "Investigate blobs that are packed in revisions in idx file: ${pack_file}"
 if [[ ! $(grep -E "^[a-f0-9]{40}[[:space:]]blob[[:space:]]+[0-9]+[[:space:]][0-9]+[[:space:]][0-9]+[[:space:]][0-9]+[[:space:]][a-f0-9]{40}$" "${file_verify_pack}" | awk -F" " '{print $1,$2,$3,$4,$5}' > "${file_tmp_bigobjects_revisions}") ]]; then
   printf "Amount of objects: %s\n" $(wc -l < "${file_tmp_bigobjects_revisions}")
-  join <(sort "${file_tmp_bigobjects_revisions}") <(sort "${file_tmp_allfileshas}") | sort -k 3 -n -r | cut -f 1,3,6- -d ' '  > "${WORKSPACE}/bigtosmall_revisions_join.txt"
-  touch "${WORKSPACE}/bigtosmall_revisions_join_uniq.txt"
-  cat "${WORKSPACE}/bigtosmall_revisions_join.txt" |  cut -d ' ' -f 3- > "${WORKSPACE}/bigtosmall_revisions_join_all.txt"
-  cat -n "${WORKSPACE}/bigtosmall_revisions_join_all.txt" | /usr/bin/sort -uk2 | /usr/bin/sort -n | cut -f2- > "${WORKSPACE}/bigtosmall_revisions_join_uniq.txt"
-  amount_total_unique=$(wc -l < "${WORKSPACE}/bigtosmall_revisions_join_uniq.txt")
+  join <(sort "${file_tmp_bigobjects_revisions}") <(sort "${file_tmp_allfileshas}") | sort -k 3 -n -r | cut -f 1,3,6- -d ' '  > "${WORKSPACE}/bigtosmall_revisions_join.tmp"
+  touch "${WORKSPACE}/bigtosmall_revisions_join_uniq.tmp"
+  cat "${WORKSPACE}/bigtosmall_revisions_join.tmp" |  cut -d ' ' -f 3- > "${WORKSPACE}/bigtosmall_revisions_join_all.tmp"
+  cat -n "${WORKSPACE}/bigtosmall_revisions_join_all.tmp" | /usr/bin/sort -uk2 | /usr/bin/sort -n | cut -f2- > "${WORKSPACE}/bigtosmall_revisions_join_uniq.tmp"
+  amount_total_unique=$(wc -l < "${WORKSPACE}/bigtosmall_revisions_join_uniq.tmp")
   printf "Amount of unique <path>/<file>: %s\n" "${amount_total_unique}"
 else
   printf "Amount of objects: 0 - skip\n"
@@ -357,17 +363,19 @@ while read -r file; do
             file="${file//'['/\\[}" && \
             file="${file//']'/\\]}" && \
             file="${file//$/\\$}"  && \
-            grep -E " ${file}$" "${WORKSPACE}/bigtosmall_revisions_join.txt"  || echo "ERROR: $file: something went wrong" >> "${WORKSPACE}/bigtosmall_errors_revision.txt")
-  printf "%s %s %s %s\n" "$size_total" "${prefix_total}" "$count" "$path_file">> "${file_tmp_bigtosmall_join}.total-revisions.tmp"
-done < "${WORKSPACE}/bigtosmall_revisions_join_uniq.txt"
-/usr/bin/sort -u -h -r "${file_tmp_bigtosmall_join}.total-revisions.tmp" > "${file_tmp_bigtosmall_join}.total-revisions-sorted.txt"
+            grep -E " ${file}$" "${WORKSPACE}/bigtosmall_revisions_join.tmp"  || echo "ERROR: $file: something went wrong" >> "${WORKSPACE}/bigtosmall_errors_revision.txt")
+  printf "%s %s %s %s\n" "$size_total" "${prefix_total}" "$count" "$path_file">> "${file_tmp_bigtosmall_join_total_revisions}"
+done < "${WORKSPACE}/bigtosmall_revisions_join_uniq.tmp"
+/usr/bin/sort -u -h -r "${file_tmp_bigtosmall_join_total_revisions}" > "${file_output_sorted_size_total_revisions}"
 printf "\n\n"
 
 echo "Investigate if issues occured"
+issues_found=false
 if [[ -s "${WORKSPACE}/bigtosmall_errors.txt"  ]]; then
   ls -la ${WORKSPACE}/bigtosmall_errors.txt
   echo "There are errors during analyzing the files: ${WORKSPACE}/bigtosmall_errors.txt"
   /usr/bin/sort -u "${WORKSPACE}/bigtosmall_errors.txt"
+  issues_found=true
 else
   echo ".. no issues in ${WORKSPACE}/bigtosmall_errors.txt"
 fi
@@ -375,6 +383,20 @@ if [[ -s "${WORKSPACE}/bigtosmall_errors_revision.txt" ]]; then
   ls -la ${WORKSPACE}/bigtosmall_errors_revision.txt
   echo "There are errors during analyzing the files: ${WORKSPACE}/bigtosmall_errors_revision.txt"
   /usr/bin/sort -u "${WORKSPACE}/bigtosmall_errors_revision.txt"
+  issues_found=true
 else
   echo ".. no issues in ${WORKSPACE}/bigtosmall_errors_revision.txt"
 fi
+
+echo
+if [[ $issues_found == true ]] ; then
+  echo "Issues found : leave *.tmp for debugging"
+else
+  if [[ ${debug:-} == true ]]; then
+    echo "Debugging mode : leave *.tmp files"
+  else
+    echo "Removing *.tmp files"
+    rm -rf *.tmp
+  fi
+fi 
+
