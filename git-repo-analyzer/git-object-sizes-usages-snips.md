@@ -23,7 +23,41 @@ else
   git clone --bare ${repo} --mirror ${repo}.git
 fi
 ```
-You now have the repo to analyze in your workspace
+You now have the repo to analyze in your workspace.
+You can also at this stage add a `git lfs migrate` or `git filter-repo` to change the history and analyze the impack of your efforts ala
+
+## LFS migrate
+```
+  git lfs migrate import -y --everything \
+      --include="\
+*.tar,*.bz2,*.mat,*.zip,*.wav,*.elf,*.exe,*.cof,*.f32,*.sdf,*.obj,*.dll,*.blob,*.pdb,*.a,*.dbg,*.bmp,*.pcm,*.yuv\
+,*.bsc,*.dfu,*.png,*.jpg,*.pdf,*.ai,*.doc,*.docx,*.ppt,*.pptx,*.xls,*.xlsx\
+,*.mp3,*.pyd,*.so,*.rom,*.mdl,*.jar,*.fig,*.bin,*.lib\
+,*.Lib,*.EXE,*.LIB,*.PCM,*.PNG\
+,*.Exe\
+,GRU512_res_mel_GRUweights_bestepoch\
+,C_voice_av_imag,C_voice_av_real,C_noise_av_imag,C_noise_av_real\
+"
+```
+
+## Filter-repo 
+```
+filter_repo_file="../filter-repo-clean-file.txt" && rm -f ${filter_repo_file}
+
+IFS=' '
+for split_path in ${split_paths}; do
+	echo "${split_path}" >> $filter_repo_file
+done
+
+git filter-repo \
+    --force \
+    --replace-refs delete-no-add \
+    --paths-from-file $filter_repo_file
+
+git gc --prune
+
+du -sh ./objects
+```
 
 
 # Running it
@@ -32,4 +66,4 @@ bash code-utils/git-repo-analyzer/git-object-sizes-in-repo-analyzer.sh ${target_
 ```
 
 # Archiving
-I usually 
+I usually archive the `*.txt` for later analyzis and sharing etc
