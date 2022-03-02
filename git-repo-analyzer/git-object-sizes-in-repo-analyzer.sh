@@ -302,7 +302,7 @@ while read -r file; do
             file="${file//'['/\\[}" && \
             file="${file//']'/\\]}" && \
             file="${file//$/\\$}"  && \
-            grep -E " ${file}$" "${file_tmp_bigtosmall_join}" || echo "ERROR: $file: something went wrong" >> "${WORKSPACE}/bigtosmall_errors.txt")
+            grep -E "^[a-f0-9]{40}[[:space:]][0-9]+[[:space:]]${file}$" "${file_tmp_bigtosmall_join}" || echo "ERROR: $file: something went wrong" >> "${WORKSPACE}/bigtosmall_errors.txt")
   printf "%s %s %s %s\n" "$size_total" "${prefix_total}" "$count" "$path_file">> "${file_tmp_bigtosmall_join_total}"
 done < "${file_tmp_bigtosmall_join_uniq}"
 /usr/bin/sort -u -h -r "${file_tmp_bigtosmall_join_total}" > "${file_output_sorted_size_total}"
@@ -363,7 +363,7 @@ while read -r file; do
             file="${file//'['/\\[}" && \
             file="${file//']'/\\]}" && \
             file="${file//$/\\$}"  && \
-            grep -E " ${file}$" "${WORKSPACE}/bigtosmall_revisions_join.tmp"  || echo "ERROR: $file: something went wrong" >> "${WORKSPACE}/bigtosmall_errors_revision.txt")
+            grep -E "^[a-f0-9]{40}[[:space:]][0-9]+[[:space:]]${file}$" "${WORKSPACE}/bigtosmall_revisions_join.tmp"  || echo "ERROR: $file: something went wrong" >> "${WORKSPACE}/bigtosmall_errors_revision.txt")
   printf "%s %s %s %s\n" "$size_total" "${prefix_total}" "$count" "$path_file">> "${file_tmp_bigtosmall_join_total_revisions}"
 done < "${WORKSPACE}/bigtosmall_revisions_join_uniq.tmp"
 /usr/bin/sort -u -h -r "${file_tmp_bigtosmall_join_total_revisions}" > "${file_output_sorted_size_total_revisions}"
