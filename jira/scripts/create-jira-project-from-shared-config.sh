@@ -21,7 +21,7 @@ jira_project_lead="$4"
 
 if [[ ${create_mode:-} == "" ]]; then
   create_mode="skipOcreate" #deleteNcreate , skipNcreate(default), delete
-  echo "Using default mode: $create_mode - Options: deleteNcreate , skipOcreate(default), delete"
+  echo "Using default mode: create_mode=$create_mode - Options: deleteNcreate , skipOcreate(default), delete"
 else
   echo "Using create_mode: $create_mode - Options: deleteNcreate , skipOcreate(default), delete"
 fi
