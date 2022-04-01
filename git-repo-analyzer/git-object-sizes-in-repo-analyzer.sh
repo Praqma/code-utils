@@ -112,8 +112,8 @@ file_tmp_bigtosmall_join_revisions="${WORKSPACE}/bigobjects_join_revisions.tmp" 
 
 file_tmp_bigtosmall_join_uniq="${WORKSPACE}/bigtosmall_join_uniq.tmp" && rm -rf "${file_tmp_bigtosmall_join_uniq}"
 
-file_tmp_bigtosmall_join_total="${WORKSPACE}/bigobjects_join_total.tmp" && rm -f "${file_tmp_bigtosmall_join_total}"
-file_tmp_bigtosmall_join_total_revisions="${WORKSPACE}/bigobjects_join_total_revisions.tmp" && rm -f "${file_tmp_bigtosmall_join_total_revisions}"
+file_tmp_bigtosmall_join_total="${WORKSPACE}/bigobjects_join_total.tmp" && rm -f "${file_tmp_bigtosmall_join_total}" && touch "${file_tmp_bigtosmall_join_total}"
+file_tmp_bigtosmall_join_total_revisions="${WORKSPACE}/bigobjects_join_total_revisions.tmp" && rm -f "${file_tmp_bigtosmall_join_total_revisions}" && touch "${file_tmp_bigtosmall_join_total_revisions}"
 
 file_output_sorted_size_files="${WORKSPACE}/bigtosmall_sorted_size_files.txt" && rm -f "${file_output_sorted_size_files}"
 file_output_sorted_size_files_revisions="${WORKSPACE}/bigtosmall_sorted_size_files_revisions.txt" && rm -f "${file_output_sorted_size_files_revisions}"
