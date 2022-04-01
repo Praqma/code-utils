@@ -21,7 +21,7 @@ function get_jira_category_projectnames {
     local _jira_proj_pattern=$3
     IFS=$'\r\n'
     
-    jira_projects=$(curl --fail --insecure -X GET -H Content-Type:application/json -o - --url ${_jira_server}/rest/api/2/project \
+    jira_projects=$(curl --fail --insecure --netrc-file ~/.netrc -X GET -H Content-Type:application/json -o - --silent  --url ${_jira_server}/rest/api/2/project \
                     | jq -r ".[] \
                       | select(.projectCategory.name==\"${_jira_proj_category}\") \
                       | select(.key | match(\"${_jira_proj_pattern}\") ).key ")
@@ -32,7 +32,7 @@ function get_jira_category_projectnames {
 function delete_jira_project {
   local _jira_server=$1
   local _jira_proj_key_to_delete=$2
-  project_key_found=$(curl --fail --insecure -X GET -H Content-Type:application/json -o - --url "${_jira_server}/rest/api/2/project/${_jira_proj_key_to_delete}" | jq -r .key )
+  project_key_found=$(curl --fail --insecure --netrc-file ~/.netrc -X GET -H Content-Type:application/json -o - --silent --url "${_jira_server}/rest/api/2/project/${_jira_proj_key_to_delete}" | jq -r .key )
 
   if [[ "${project_key_found}" == "${_jira_proj_key_to_delete}" ]] ; then
     printf "Project found: $project_key_found - delete it... and it might take some time depend on the amount of issues.."
