@@ -54,3 +54,21 @@ In combination with the above tools for deep analysis on object level it could a
 https://github.com/github/git-sizer
 
 
+# git-Slack-friendly-next-release
+This little `sh` file intends to generate a Slack-friendly list of branches merged into main that will be included in a new build/release. Simple, useful and handy, it can be attached to Makefile deploying commands, like:
+
+```
+next-release:
+    # Slack-friendly list of branches merged into main that will included in the next Production release.
+    @echo "The next release to *Production* will include:"
+	  @sh scripts/print_next_release.sh
+```
+
+That will come with an output like thies:
+
+```
+# Slack-friendly list of branches merged into main that will included in the next Production release.
+The next release to *Production* will include:
+# > https://github.com/<ORGANIZATION>/<REPO>/pull/4829 `branch-name-1` (author-name-1)
+# > https://github.com/<ORGANIZATION>/<REPO>/pull/4811 `branch-name-2` (author-name-2)
+```
