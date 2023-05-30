@@ -23,7 +23,7 @@ command="$1"
 jenkins_agent_name="$2"
 
 sleep_sec="5"
-jenkins_server="https://dkcphapp16.corp.intra-gnn.com:8080"
+jenkins_server="<jenkins-server>"
 
 if [[ ${netrc_file:-} != "" ]]; then 
 	echo "Using netrc file $netrc_file"
