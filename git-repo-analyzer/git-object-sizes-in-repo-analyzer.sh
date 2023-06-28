@@ -133,7 +133,15 @@ done
 printf "Done\n\n"
 
 pack_file=$(find ${pack_dir} -name '*.idx')
-[[ ${pack_file} ==  "" ]] && { echo "No pack file available - do a repack" && repack="true" ;}
+[[ ${pack_file} ==  "" ]] && { 
+  echo "No pack file available - do a git gc" 
+  git gc 
+  pack_file=$(find ${pack_dir} -name '*.idx')
+  [[ ${pack_file} ==  "" ]] && { 
+    echo "No pack file available - do a repack" 
+    repack="true"
+   }
+}
 
 if [[ ${repack} == true ]]; then
   echo "git repo and object sizes before repack:"
