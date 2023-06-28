@@ -15,6 +15,8 @@ netrc_file=~/.netrc
 
 echo "{ \"project\":\"$jira_key\"}" > jira_project.json
 
+jq -r ".projects[0].versions[] | select(.name? | match(\"${reqex_releases}\")).name" $import_file > releases.txt
+dos2unix releases.txt
 IFS=$'\r\n'
 for release in $(jq -r ".projects[0].versions[] | select(.name? | match(\"${reqex_releases}\")).name" $import_file ) ; do
   version_already_exists=$(curl --fail --insecure --netrc-file ${netrc_file} -X GET -H Content-Type:application/json -o - --silent --url ${jira_server}/rest/api/2/project/${jira_key}/versions \
@@ -30,12 +32,19 @@ for release in $(jq -r ".projects[0].versions[] | select(.name? | match(\"${reqe
   jq -r ".projects[0].versions[] | select(.name == \"${release}\")"  $import_file  > jira_release.json
   jq -s '.[0] * .[1]' jira_project.json jira_release.json > jira_release2.json
 
+  # TODO: checck update script to handle exit codes from curl
   if ! curl --fail --insecure --netrc-file ${netrc_file} -X POST -H Content-Type:application/json -o -  --silent --url ${jira_server}/rest/api/2/version --upload-file jira_release2.json > /dev/null ; then
-    echo "Failed.. Maybe the release is already in the project.. Exit code: $?"
-    cat jira_release2.json
-    exit 1
+    exit_code=$?
+    if [[ $exit_code -eq 0 ]]; then
+      printf " Failed.. Maybe the release is already in the project.. Exit code: $exit_code - same name lower / UPPER caps ?? - continue\n"
+      continue
+    else
+      printf " Failed.. for unknown reason"
+      cat jira_release2.json
+      exit $exit_code
+    fi
   else
-    printf " Done\n"
+    printf " $? : Done\n"
   fi
   rm -f jira_release.json
   rm -f jira_release2.json
