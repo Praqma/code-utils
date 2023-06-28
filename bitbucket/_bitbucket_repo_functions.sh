@@ -3,6 +3,7 @@
 curl_PUT_cmd="curl --fail -D- --insecure --netrc-file ${netrc_file} -X PUT"
 curl_DELETE_cmd="curl --fail -D- --insecure --netrc-file ${netrc_file} -X DELETE"
 curl_POST_cmd="curl --fail -D- --insecure --netrc-file ${netrc_file} -X POST -H Content-Type:application/json "
+curl_POST_nofail_cmd="curl --insecure --netrc-file ${netrc_file} -X POST -H Content-Type:application/json "
 
 function generate_restriction_json {
     local _restriction_type=$1
@@ -154,8 +155,23 @@ function create_repo {
     else
       local _push_type=$4
     fi
-
-    ${curl_POST_cmd} ${_bitbucket_url}/rest/api/1.0/projects/${_bitbucket_project}/repos -d "{ \"name\":\"${_repo_name}\", \"forkable\":true }"
+#-w "%{stderr}{\"status\": \"%{http_code}\", \"body\":\"%{stdout}\"}"
+    reponse_json=$(${curl_POST_nofail_cmd} -sS -w ",{ \"status\": \"%{http_code}\" }" ${_bitbucket_url}/rest/api/1.0/projects/${_bitbucket_project}/repos -d "{ \"name\":\"${_repo_name}\", \"forkable\":true }" )
+    reponse_code=$(echo "[$reponse_json]" | jq -r .[1].status )
+    case $reponse_code in
+      201)
+        echo "All good - repo created"
+        ;;
+      409)
+        echo "Skip - repo already exists"
+        echo "[$reponse_json]" | jq -r .[0].errors[]
+        ;;
+      *)
+        echo "ERROR - something when wrong"
+        echo "[$reponse_json]" | jq -r .[0].errors[]
+        exit 1
+        ;;
+    esac
 
     # Fill repo
     if [ -d ${_repo_name} ]; then
