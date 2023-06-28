@@ -26,7 +26,7 @@ else
   echo "Using create_mode: $create_mode - Options: deleteNcreate , skipOcreate(default), delete"
 fi
 
-netrc_file=~/.netrc
+netrc_file=$(echo ~).netrc
 
 curl_GET_cmd="curl --fail --insecure --netrc-file ${netrc_file} -X GET -H Content-Type:application/json -o - "
 curl_POST_cmd="curl --fail --insecure --netrc-file ${netrc_file} -X POST -H Content-Type:application/json  -o - "
