@@ -148,14 +148,14 @@ pack_file=$(find ${pack_dir} -name '*.idx')
 if [[ ${repack} == true ]]; then
   echo "git repo and object sizes before repack:"
   du -sh "${git_dir}"
-  [[ -d "${git_dir}/${pack_dir}" ]] && du -sh "${git_dir}/${pack_dir}"
+  [[ -d "${pack_dir}" ]] && du -sh "${pack_dir}"
   # reference: https://stackoverflow.com/questions/28720151/git-gc-aggressive-vs-git-repack
   git reflog expire --all --expire=now
   git repack -a -d --depth=250 --window=250 # accept to use old deltas - add "-f" option to not reuse old deltas for large repos it fails often
   git gc --prune
   if [[ ${skip_sizes:-} == "" ]]; then
     echo "git repo and object sizes after repack:"
-    [[ -d "${git_dir}/${pack_dir}" ]] && du -sh "${git_dir}/${pack_dir}"
+    [[ -d "${pack_dir}" ]] && du -sh "${pack_dir}"
     du -sh "${git_dir}"
   else
     echo "git repo and object sizes after repack: skipped"
@@ -172,13 +172,13 @@ if [[ ${skip_sizes:-} == "" ]]; then
   git_size_total=$(du -sh "${git_dir}" | cut -f 1)
   git_size_objects=$(du -sh "${git_dir}/objects" | cut -f 1)
   git_size_pack=""
-  [[ -d "${git_dir}/${pack_dir}" ]] && git_size_pack=$(du -sh "${git_dir}/${pack_dir}" | cut -f 1)
+  [[ -d "${pack_dir}" ]] && git_size_pack=$(du -sh "${pack_dir}" | cut -f 1)
 
   git_size_lfs=""
-  [[ -d "${git_dir}/lfs" ]] && dir_size_lfs=$(du -sh "${git_dir}/lfs" | cut -f 1)
+  [[ -d "${git_dir}/lfs" ]] && git_size_lfs=$(du -sh "${git_dir}/lfs" | cut -f 1)
 
   git_size_modules=""
-  [[ -d "${git_dir}/modules" ]] && dir_size_modules=$(du -sh "${git_dir}/modules" | cut -f 1  )
+  [[ -d "${git_dir}/modules" ]] && git_size_modules=$(du -sh "${git_dir}/modules" | cut -f 1  )
 else
   echo "git lfs and modules sizes: skipped"
 fi
