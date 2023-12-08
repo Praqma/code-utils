@@ -125,6 +125,8 @@ file_output_branch_leaves_tagged="${WORKSPACE}/branches_leaves_tagged.txt" && rm
 file_output_sorted_size_total="${WORKSPACE}/bigtosmall_sorted_size_total.txt" && rm -rf "${file_output_sorted_size_total}"
 file_output_sorted_size_total_revisions="${WORKSPACE}/bigtosmall_sorted_size_total_revisions.txt" && rm -rf "${file_output_sorted_size_total_revisions}"
 
+file_output_git_sizes="${WORKSPACE}/git_sizes.txt" && rm -rf "${file_output_git_sizes}"
+
 printf "Clean old temp packs(if present): \n"
 for idx in $(find ${pack_dir} -name '.tmp*.pack' -o -name '.tmp*.idx') ; do
  echo "$idx"
@@ -162,32 +164,39 @@ if [[ ${repack} == true ]]; then
   [[ ${pack_file} ==  "" ]] && echo "No pack file available - exit 1" && exit 1
 else
   printf "repack == false - skip\n\n"
-
-  if [[ ${skip_sizes:-} == "" ]]; then
-    echo "git repo and object sizes:"
-    du -sh "${git_dir}"
-    [[ -d "${git_dir}/${pack_dir}" ]] && du -sh "${git_dir}/${pack_dir}"
-  else
-    echo "git repo and object sizes: skipped"
-  fi
-  echo
 fi
+
 if [[ ${skip_sizes:-} == "" ]]; then
-  echo "git lfs and modules sizes:"
-  [[ -d "${git_dir}/lfs" ]]     && du -sh "${git_dir}/lfs"     || echo "${git_dir}/lfs is not present"
-  [[ -d "${git_dir}/modules" ]] && du -sh "${git_dir}/modules" || echo "${git_dir}/modules is not present"
+  echo "Get git repo sizes:" 
+  
+  git_size_total=$(du -sh "${git_dir}" | cut -f 1)
+  git_size_objects=$(du -sh "${git_dir}/objects" | cut -f 1)
+  git_size_pack=""
+  [[ -d "${git_dir}/${pack_dir}" ]] && git_size_pack=$(du -sh "${git_dir}/${pack_dir}" | cut -f 1)
+
+  git_size_lfs=""
+  [[ -d "${git_dir}/lfs" ]] && dir_size_lfs=$(du -sh "${git_dir}/lfs" | cut -f 1)
+
+  git_size_modules=""
+  [[ -d "${git_dir}/modules" ]] && dir_size_modules=$(du -sh "${git_dir}/modules" | cut -f 1  )
 else
   echo "git lfs and modules sizes: skipped"
 fi
 
+cat <<EOF > ${file_output_git_sizes}
+git_size_total=${git_size_total}
+git_size_objects=${git_size_objects}
+git_size_pack=${git_size_pack}
+git_size_lfs=${git_size_lfs}
+git_size_modules=${git_size_modules}
+EOF
 
+cat ${file_output_git_sizes}
 
 export pack_file
 echo "Run verify-pack to list all objects in idx"
 git verify-pack -v "${pack_file}" > "${file_verify_pack}"
 echo "Done"
-
-
 
 regex_lstree_list='^([a-f0-9]{40})[[:space:]]+(.*)$'
 declare -A default_blobs_map
