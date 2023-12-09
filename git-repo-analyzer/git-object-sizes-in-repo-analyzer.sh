@@ -195,7 +195,11 @@ cat ${file_output_git_sizes}
 
 export pack_file
 echo "Run verify-pack to list all objects in idx"
-git verify-pack -v "${pack_file}" > "${file_verify_pack}"
+git verify-pack -v "${pack_file}" > "${file_verify_pack}" || {
+  git reflog expire --all --expire=now
+  git repack -a -d --depth=250 --window=250 # accept to use old deltas - add "-f" option to not reuse old deltas for large repos it fails often
+  git gc --prune
+}
 echo "Done"
 
 regex_lstree_list='^([a-f0-9]{40})[[:space:]]+(.*)$'
