@@ -193,13 +193,17 @@ EOF
 
 cat ${file_output_git_sizes}
 
-export pack_file
+export pack_file=$(find ${pack_dir} -name '*.idx')
 echo "Run verify-pack to list all objects in idx"
 git verify-pack -v "${pack_file}" > "${file_verify_pack}" || {
   echo "try to repack and gc --prune"
-  git reflog expire --all --expire=now
-  git repack -a -d --depth=250 --window=250 # accept to use old deltas - add "-f" option to not reuse old deltas for large repos it fails often
-  git gc --prune
+  (
+    git reflog expire --all --expire=now
+    git repack -a -d --depth=250 --window=250 # accept to use old deltas - add "-f" option to not reuse old deltas for large repos it fails often
+    git gc --prune
+  ) || git gc --prune
+  export pack_file=$(find ${pack_dir} -name '*.idx')
+  git verify-pack -v "${pack_file}" > "${file_verify_pack}"
 }
 echo "Done"
 
