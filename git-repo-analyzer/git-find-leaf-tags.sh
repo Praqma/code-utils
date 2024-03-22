@@ -19,6 +19,7 @@ found_tag=""
 if [[ "${#leafs[@]}" -eq 1 ]]; then 
     found_tag="${leafs[0]}"
     echo "found_tag=$found_tag"
+    exit 0
 else
     printf "More than one leaf: ${leafs[*]}\n"
     {
@@ -26,4 +27,5 @@ else
             echo $leaf
         done
     } | sort -h  
+    exit 1
 fi
