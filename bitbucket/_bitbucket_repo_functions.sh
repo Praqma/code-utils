@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
 curl_PUT_cmd="curl --fail -D- --insecure --netrc-file ${netrc_file} -X PUT"
+curl_PUT_nofail_cmd="curl --insecure --netrc-file ${netrc_file} -X PUT"
 curl_DELETE_cmd="curl --fail -D- --insecure --netrc-file ${netrc_file} -X DELETE"
 curl_POST_cmd="curl --fail -D- --insecure --netrc-file ${netrc_file} -X POST -H Content-Type:application/json "
 curl_POST_nofail_cmd="curl --insecure --netrc-file ${netrc_file} -X POST -H Content-Type:application/json "
@@ -177,16 +178,65 @@ function create_repo {
     if [ -d ${_repo_name} ]; then
         cd ${_repo_name}
         if [[ "${_push_type}" == "--mirror" ]]; then
-          git push ${bitbucket_url}/scm/${_bitbucket_project}/${_repo_name}.git ${_push_type}
+          git push ${_bitbucket_url}/scm/${_bitbucket_project}/${_repo_name}.git ${_push_type}
         else
-          git push ${bitbucket_url}/scm/${_bitbucket_project}/${_repo_name}.git master:master
-          git push ${bitbucket_url}/scm/${_bitbucket_project}/${_repo_name}.git master:stable || echo "Skipped"
-          git push ${bitbucket_url}/scm/${_bitbucket_project}/${_repo_name}.git master:release || echo "Skipped"
-          git push ${bitbucket_url}/scm/${_bitbucket_project}/${_repo_name}.git --tags
+          git push ${_bitbucket_url}/scm/${_bitbucket_project}/${_repo_name}.git master:master
+          git push ${_bitbucket_url}/scm/${_bitbucket_project}/${_repo_name}.git master:stable || echo "Skipped"
+          git push ${_bitbucket_url}/scm/${_bitbucket_project}/${_repo_name}.git master:release || echo "Skipped"
+          git push ${_bitbucket_url}/scm/${_bitbucket_project}/${_repo_name}.git --tags
         fi
         cd -
     fi
 }
+
+function repo_move {
+    if [[ -z $1 ]] ; then
+        echo "Please set bitbucket_url as parameter 1"
+        return 1
+    fi
+    local _bitbucket_url=$1
+
+    if [[ -z $2 ]] ; then
+        echo "Please set bitbucket project name as parameter 2"
+        return 1
+    fi
+    local _bitbucket_project=$2
+
+    if [[ -z $3 ]] ; then
+        echo "Please set repo name (slug) as parameter 3"
+        return 1
+    fi
+    local _repo_name=$3
+
+    if [[ -z $4 ]] ; then
+        echo "Please set bitbucket project name as parameter 2"
+        return 1
+    fi
+    local _bitbucket_new_project=$4
+
+#-w "%{stderr}{\"status\": \"%{http_code}\", \"body\":\"%{stdout}\"}"
+    reponse_json=$(${curl_PUT_nofail_cmd} -H Content-Type:application/json -sS -w ",{ \"status\": \"%{http_code}\" }" ${_bitbucket_url}/rest/api/1.0/projects/${_bitbucket_project}/repos/${_repo_name} -d "{ \"project\": { \"key\" : \"${_bitbucket_new_project}\" }} " )
+    reponse_code=$(echo "[$reponse_json]" | jq -r .[1].status )
+    case $reponse_code in
+      201)
+        echo "All good - repo moved"
+        ;;
+      404)
+        echo "Skip - repo source ${_bitbucket_url}/rest/api/1.0/projects/${_bitbucket_project}/repos/${_repo_name} does not exist"
+        echo "[$reponse_json]" | jq -r .[0].errors[]
+        ;;
+      409)
+        echo "Skip - repo already exists in project: ${_bitbucket_new_project}"
+        echo "[$reponse_json]" | jq -r .[0].errors[]
+        ;;
+      *)
+        echo "ERROR - something when wrong"
+        echo "[$reponse_json]" | jq -r .[0].errors[]
+        exit 1
+        ;;
+    esac
+}
+
 
 function repo_prereceive_force_push_hook_enable () {
     if [[ -z $1 ]] ; then
