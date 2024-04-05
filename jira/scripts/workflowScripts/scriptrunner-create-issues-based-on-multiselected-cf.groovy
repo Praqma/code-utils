@@ -21,7 +21,7 @@ import com.atlassian.jira.component.ComponentAccessor
 import com.atlassian.jira.issue.IssueInputParameters
 import com.atlassian.jira.user.ApplicationUser
 
-Logger logger = Logger.getLogger("sacos.s5k.evalcreate")
+Logger logger = Logger.getLogger("evalcreate")
 logger.setLevel(Level.ALL)
 
 IssueService issueService = ComponentAccessor.getIssueService()
