@@ -339,3 +339,81 @@ function repo_git_lfs_enable () {
     local _netrc_file=$4
     curl --fail --insecure --netrc-file ${_netrc_file} -X PUT -H Content-Type:application/json -o - --url ${_bitbucket_url}/rest/git-lfs/admin/projects/${_project}/repos/${_repo}/enabled
 }
+
+function repo_branch_create () {
+  if [[ -z $1 ]] ; then
+      echo "Please set bitbucket_url as parameter 1"
+      return 1
+  fi
+  if [[ -z $2 ]] ; then
+      echo "Please set bitbucket project name as parameter 2"
+      return 2
+  fi
+  if [[ -z $3 ]] ; then
+      echo "Please set repo name as parameter 3"
+      return 3
+  fi
+  if [[ -z $4 ]] ; then
+      echo "Please set netrc-file as parameter 4"
+      return 4
+  fi
+  if [[ -z $5 ]] ; then
+      echo "Please set sha1 as parameter 5"
+      return 5
+  fi
+  if [[ -z $6 ]] ; then
+      echo "Please set branch as parameter 6"
+      return 6
+  fi
+  local _bitbucket_url=$1
+  local _bitbucket_project=$2
+  local _repo=$3
+  local _netrc_file=$4
+  local _sha1=$5
+  local _branch=$6
+
+  reponse_json=$(${curl_POST_nofail_cmd} -sS -w ",{ \"status\": \"%{http_code}\" }" ${_bitbucket_url}/rest/api/1.0/projects/${_bitbucket_project}/repos/${_repo}/branches \
+                    -d "{ \"name\": \"${_branch}\", \"startPoint\": \"${_sha1}\", \"message\": \"Branch creation $_branch\"} " )
+  reponse_code=$(echo "[$reponse_json]" | jq -r .[1].status )
+  case $reponse_code in
+      200)
+        echo "All good - branch created: $_branch @ $_repo @ $_bitbucket_project"
+        ;;
+      409)
+        echo "Skip - repo already exists:  $_branch @ $_repo @ $_bitbucket_project"
+        echo "[$reponse_json]" | jq -r .[0].errors[]
+        ;;
+      *)
+        echo "ERROR - something when wrong"
+        echo "[$reponse_json]" | jq -r .[0].errors[]
+        exit 1
+        ;;
+  esac
+
+
+
+#https://docs.atlassian.com/bitbucket-server/rest/7.6.0/bitbucket-rest.html
+#  /rest/api/1.0/projects/{projectKey}/repos/{repositorySlug}/branches
+#METHODS
+#POST
+#This API can also be invoked via a user-centric URL when addressing repositories in personal projects.
+#
+#Creates a branch using the information provided in the {@link RestCreateBranchRequest request}
+#
+#The authenticated user must have REPO_WRITE permission for the context repository to call this resource.
+#
+#Example request representations:
+#
+#application/json [collapse]
+#EXAMPLE
+#{
+#    "name": "my-branch",
+#    "startPoint": "8d351a10fb428c0c1239530256e21cf24f136e73",
+#    "message": "This is my branch"
+#}
+#Example response representations:
+#
+#200 - application/json (branch) [expand]
+#401 - application/json (errors) [expand]
+#404 - application/json (errors) [expand]
+}
