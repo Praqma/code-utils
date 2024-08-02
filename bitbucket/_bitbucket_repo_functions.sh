@@ -215,23 +215,30 @@ function repo_move {
     local _bitbucket_new_project=$4
 
 #-w "%{stderr}{\"status\": \"%{http_code}\", \"body\":\"%{stdout}\"}"
-    reponse_json=$(${curl_PUT_nofail_cmd} -H Content-Type:application/json -sS -w ",{ \"status\": \"%{http_code}\" }" ${_bitbucket_url}/rest/api/1.0/projects/${_bitbucket_project}/repos/${_repo_name} -d "{ \"project\": { \"key\" : \"${_bitbucket_new_project}\" }} " )
-    reponse_code=$(echo "[$reponse_json]" | jq -r .[1].status )
-    case $reponse_code in
+    response_json=$(${curl_PUT_nofail_cmd} -H Content-Type:application/json -sS -w ",{ \"status\": \"%{http_code}\" }" ${_bitbucket_url}/rest/api/1.0/projects/${_bitbucket_project}/repos/${_repo_name} -d "{ \"project\": { \"key\" : \"${_bitbucket_new_project}\" }} " )
+    response_code=$(echo "[$response_json]" | jq -r .[1].status 2> /dev/null ) || {
+        IFS=, read  -r response_string response_status_json <<< "$response_json"
+        response_code=$(jq -r .status <<< ${response_status_json} )
+    }
+    case $response_code in
       201)
-        echo "All good - repo moved"
+        echo "All good - repo moved: ${_bitbucket_url}/rest/api/1.0/projects/${_bitbucket_project}/repos/${_repo_name} to ${_bitbucket_new_project}"
+        ;;
+      307)
+        echo "Skip - repo source ${_bitbucket_url}/rest/api/1.0/projects/${_bitbucket_project}/repos/${_repo_name} already moved"
+        echo "$response_string"
         ;;
       404)
         echo "Skip - repo source ${_bitbucket_url}/rest/api/1.0/projects/${_bitbucket_project}/repos/${_repo_name} does not exist"
-        echo "[$reponse_json]" | jq -r .[0].errors[]
+        echo "[$response_json]" | jq -r .[0].errors[]
         ;;
       409)
         echo "Skip - repo already exists in project: ${_bitbucket_new_project}"
-        echo "[$reponse_json]" | jq -r .[0].errors[]
+        echo "[$response_json]" | jq -r .[0].errors[]
         ;;
       *)
         echo "ERROR - something when wrong"
-        echo "[$reponse_json]" | jq -r .[0].errors[]
+        echo "[$response_json]" | jq -r .[0].errors[]
         exit 1
         ;;
     esac
@@ -307,7 +314,7 @@ function delete_repo () {
     local _project=$2
     local _repo=$3
     local _netrc_file="$4"
-    curl --fail -D- --insecure --netrc-file ${_netrc_file} -X DELETE ${_bitbucket_url}/rest/api/1.0/projects/${_project}/repos/${_repo}
+    curl --fail --insecure --netrc-file ${_netrc_file} -X DELETE ${_bitbucket_url}/rest/api/1.0/projects/${_project}/repos/${_repo}
 }
 
 function repo_git_lfs_enable () {
