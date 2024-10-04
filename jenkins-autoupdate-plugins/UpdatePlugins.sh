@@ -15,6 +15,6 @@ else
     echo ${TOINSTALL} | tr -s ' ' | sed -e 's/[[:space:]]/<br>/g' | tee --append ./description.txt
     echo '</b>' | tee --append ./description.txt
     # shellcheck disable=SC2086
-    $MYCLICMDLINE install-plugin ${TOINSTALL}
-    $MYCLICMDLINE safe-restart -message "Plugins have been updated, must restart"
+    $MYCLICMDLINE install-plugin ${TOINSTALL} -restart
+    # $MYCLICMDLINE safe-restart -message "Plugins have been updated, must restart"
 fi
