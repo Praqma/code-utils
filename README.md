@@ -55,6 +55,12 @@ See these repositories:
 * https://github.com/Praqma/job-dsl-collection
 * https://github.com/Praqma/jobdsl-helpers
 
+### Jenkins Plugin Updater
+
+Jenkinsfile and bash script that will enable Jenkins to automatically update plugins that have more recent versions. See [Readme.MD](./jenkins-autoupdate-plugins/Readme.MD) for details. 
+
+Have faith in Continuous Integration go for the latest plugin versions...
+
 ### Transform and Run
 
 A script that can transform another script, before executing it. Usage can be scripts that can't take variables, or are used as inputs to other scripts.
@@ -77,7 +83,6 @@ Simple little groovy script to check DNS lookup, TCP connection and ping and cur
 Check firewall rules, from node to node using Jenkins build slave. You can't easily do this with monitoring systems.
 
 Read more on use-case in the [sub directory readme in powerping](powerping/README.md)
-
 
 ### File pattern scanner
 
@@ -112,7 +117,6 @@ Within the folder of each util, there should be a readme explaining how to use, 
 * Please make sure scripts are anonymized - no customer, or specific user details.
 
 Folders might later be categorized in further levels.
-
 
 # Contribution criterias
 

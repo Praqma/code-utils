@@ -1,0 +1,37 @@
+pipeline {
+    agent any
+
+    stages {
+        stage('Install plugin updates') {
+            steps {
+                sh label: 'Get jenkins-cli.jar', script:
+                '''
+                  #!/usr/bin/bash
+                  set +x
+                  wget --no-verbose ${JENKINS_URL}jnlpJars/jenkins-cli.jar
+                '''
+                withCredentials(
+                  [usernamePassword(
+                    credentialsId: 'AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA',
+                    passwordVariable: 'PASSWORD',
+                    usernameVariable: 'USERNAME'
+                  )])
+                  {
+                    sh label: 'Check for updates and install', script:
+                    '''
+                      bash ./jenkinsJobs/UpdatePlugins/UpdatePlugins.sh
+                    '''
+                  }
+                script {
+                    currentBuild.description = readFile './description.txt'
+                }
+                archiveArtifacts artifacts: 'description.txt', followSymlinks: false
+            }
+        }
+    }
+    post {
+        always {
+            deleteDir()
+        }
+    }
+}
