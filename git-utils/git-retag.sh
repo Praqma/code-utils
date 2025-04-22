@@ -30,7 +30,7 @@ while getopts ":o:n:dph" opt; do
 done
 
 if [[ -z "${tag_orig:-}" ]] || [[ -z "${tag_new:-}" ]]; then
-    echo "Usage: $0 -o <tag_old> -n <tag_new>"
+    $0 -h
     exit 1
 fi
 
@@ -38,6 +38,7 @@ trap 'rm -f ./tag_meta_data.txt' EXIT
 
 function get_old_tag_info() {
    
+    git show refs/tags/$tag_orig > /dev/null || git fetch --force origin --no-tags refs/tags/$tag_orig:refs/tags/$tag_orig
     export GIT_AUTHOR_DATE="$(git tag -l --format="%(taggerdate:iso)" ${tag_orig})"
     git tag -l --format="%(taggerdate:raw)" ${tag_orig}
     export GIT_COMMITTER_DATE="${GIT_AUTHOR_DATE}"
@@ -81,7 +82,6 @@ function push_new_tag() {
 
 get_old_tag_info ${tag_orig}
 create_new_tag ${tag_new}
-push_new_tag
 [[ ${push_new_tag:-false} == true ]] && push_new_tag ${tag_orig} && {
     [[ ${delete_old_tag:-false} == true ]] && delete_old_tag_remotely ${tag_orig}
 }
