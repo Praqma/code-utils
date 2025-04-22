@@ -6,7 +6,7 @@ set -euo pipefail
 while getopts ":o:n:dph" opt; do
     case ${opt} in
         o )
-            tag_orig=$OPTARG
+            tag_orig=$OPTARG    
             ;;
         n )
             tag_new=$OPTARG
