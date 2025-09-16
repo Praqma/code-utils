@@ -1,37 +1,93 @@
 #!/bin/bash
 set -xeu 
 
-export WORKSPACE_CYGPATH=$(pwd)
+export WORKSPACE=$(pwd)
 
 if [[ -d xml ]]; then
 	cd xml
-  git reset --hard
-  ls -1 | xargs rm -rf
+    git fetch origin -p
+    git reset --hard origin/$(hostname)-master-xml || git reset --hard origin/master-xml || git reset --hard origin/master
+    ls -1 | xargs rm -rf
 else
 	mkdir xml
-  cd xml
-  git init
-	git remote add origin ${git_remote}
-	echo "**/configurations/" > .gitignore
-	echo "**/builds/" >> .gitignore
-	echo "**/fingerprints/" >> .gitignore
-  echo "**/*_deleted_*/" >> .gitignore
+    cd xml
+    git init
+	git remote add origin ${REPO_URL}
+    git fetch origin -p
+    git reset --hard origin $(hostname)-master-xml
 fi
+
+# system and plugins
+echo "**/configurations/" > .gitignore
+echo "**/builds/" >> .gitignore
+echo "**/fingerprints/" >> .gitignore
+echo "**/*_deleted_*/" >> .gitignore
+echo "plugins/*" >> .gitignore
+echo "users/*" >> .gitignore
+echo "nodes/*" >> .gitignore
+echo "config-history/*" >> .gitignore
+echo "scm-sync-configuration/*" >> .gitignore
+echo "workspace/*" >> .gitignore
+
+# user path for clean up
+echo "jobs/esw/jobs/bitbucket/*" >> .gitignore
+echo "jobs/esw/jobs/sonarcloud/*" >> .gitignore
+echo "config.bak/*" >> .gitignore
+
 cd $jenkins_path
-find . -name "*.xml" -exec cp --parents \{\} ${WORKSPACE_CYGPATH}/xml \;
+find . \
+  	-path "*/configurations" -prune -o \
+  	-path "*/builds" -prune -o \
+  	-path "*/fingerprints" -prune -o \
+  	-path "*/*_deleted_*" -prune -o \
+  	-path "./plugins/*" -prune -o \
+  	-path "./users/*" -prune -o \
+  	-path "./nodes/*" -prune -o \
+  	-path "./config-history/*" -prune -o \
+  	-path "./scm-sync-configuration/*" -prune -o \
+  	-path "./workspace/*" -prune -o \
+   \
+  	-path "./jobs/esw/jobs/bitbucket/*" -prune -o \
+  	-path "./jobs/esw/jobs/sonarcloud/*" -prune -o \
+	-name 'config.xml' -type f \
+    -print
+  
+[[ ${dryrun:-} == true ]] && exit 
+
+find . \
+	-path "*/configurations" -prune -o \
+  	-path "*/builds" -prune -o \
+  	-path "*/fingerprints" -prune -o \
+  	-path "*/*_deleted_*" -prune -o \
+  	-path "./plugins/*" -prune -o \
+  	-path "./users/*" -prune -o \
+  	-path "./nodes/*" -prune -o \
+  	-path "./config-history/*" -prune -o \
+  	-path "./scm-sync-configuration/*" -prune -o \
+  	-path "./workspace/*" -prune -o \
+   \
+  	-path "./jobs/esw/jobs/bitbucket/*" -prune -o \
+  	-path "./jobs/esw/jobs/sonarcloud/*" -prune -o \
+	-name 'config.xml' -type f \
+    -exec cp --parents \{\} ${WORKSPACE}/xml \;
 cd -
 
-cd ${WORKSPACE_CYGPATH}/xml
+cd ${WORKSPACE}/xml
 
 git add -A .
-git commit -m "$(date) - $jenkins_path ${tag}" || echo "never mind"
-git push origin -f master:master-xml
+if [[ ${tag:-} == "" ]]; then 
+	tag=$(date +"%Y-%m-%dT%H-%M-%S")
+fi
+tag_commit="$(hostname)-${jenkins_path}-${tag}"
+git commit -m "${tag_commit}"
+git push origin -f HEAD:$(hostname)-master-xml
 if [[ ${tag:-} != "" ]]; then 
-	git tag -a -m "${tag}" ${tag} -f
-	git push origin ${tag} -f
+	git tag -a -m "${tag_commit}" ${tag_commit} -f
+	git push origin ${tag_commit} -f
 fi
 
-cd ${WORKSPACE_CYGPATH}/xml/jobs
+
+cd ${WORKSPACE}/xml/jobs
 
 if [ ${make_disabled:-} == true ]; then
   IFS=$'\n\r'
