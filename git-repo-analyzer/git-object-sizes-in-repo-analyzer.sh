@@ -68,16 +68,14 @@ if [[ "${1:-}" != "" ]]; then
 fi
 echo
 
+git_dir="$(git rev-parse --git-dir)"
+pack_dir="${git_dir}/objects"
 if [[ $(git rev-parse --is-bare-repository) == true ]]; then
   echo "repo_type=bare  ( bare / normal )"
-  pack_dir="./objects"
-  git_dir="."
   branch_remote_option=""
   default_branch=$(git branch  | grep '^* ' | cut -f 2 -d ' ') || default_branch=""
 else
   echo "repo_type=normal ( bare / normal )"
-  git_dir=".git"
-  pack_dir=".git/objects"
   branch_remote_option="-r"
   default_branch=$(git branch -r | grep origin/HEAD | cut -f 5 -d ' ') || default_branch=""
 fi
