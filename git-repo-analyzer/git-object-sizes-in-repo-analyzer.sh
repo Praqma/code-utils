@@ -173,7 +173,13 @@ if [[ ${skip_sizes:-} == "" ]]; then
   [[ -d "${pack_dir}" ]] && git_size_pack=$(du -sh "${pack_dir}" | cut -f 1)
 
   git_size_lfs=""
-  [[ -d "${git_dir}/lfs" ]] && git_size_lfs=$(du -sh "${git_dir}/lfs" | cut -f 1)
+  [[ -d "${git_dir}/lfs" ]] && {
+    git_size_lfs=$(du -sh "${git_dir}/lfs" | cut -f 1)
+  }
+  git lfs ls-files --all > "${WORKSPACE}/git_lfs_files.txt" || {
+    echo "No git lfs files or error during git lfs ls-files --all - skip"
+    rm -f "${WORKSPACE}/git_lfs_files.txt"
+  }
 
   git_size_modules=""
   [[ -d "${git_dir}/modules" ]] && git_size_modules=$(du -sh "${git_dir}/modules" | cut -f 1  )
