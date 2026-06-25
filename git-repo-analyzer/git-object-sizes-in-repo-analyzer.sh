@@ -4,6 +4,8 @@ set -eu -o pipefail
 
 [[ ${debug:-} == true ]] && set -x
 
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 [[ ${repack:-} == "" ]] && repack=true
 echo "repack=$repack"
 
@@ -50,6 +52,25 @@ function progress_bar_update (){
     # interactive
     printf "[ %-10s ] %4s - %s\r" "$fill" "${processed_percent}%" "$processed_count / $amount_total_unique"
   fi
+}
+
+function bytes_to_megabytes () {
+  local bytes="$1"
+  local output_var="$2"
+  local converted
+
+  if [[ ! "${bytes}" =~ ^[0-9]+$ ]]; then
+    echo "ERROR: bytes_to_megabytes expected numeric bytes, got: '${bytes}'" >&2
+    return 1
+  fi
+
+  converted=$(awk -v bytes="${bytes}" 'BEGIN {
+    mb = bytes / 1000000
+    if (mb == int(mb)) printf "%.0fM", mb
+    else printf "%.1fM", mb
+  }')
+
+  printf -v "${output_var}" '%s' "${converted}"
 }
 
 
@@ -106,15 +127,14 @@ file_tmp_bigobjects="${WORKSPACE}/bigobjects.tmp" && rm -f "${file_tmp_bigobject
 file_tmp_bigobjects_revisions="${WORKSPACE}/bigobjects_revisions.tmp" && rm -f "${file_tmp_bigobjects_revisions}"
 
 file_tmp_bigtosmall_join="${WORKSPACE}/bigobjects_join.tmp" && rm -f "${file_tmp_bigtosmall_join}"
-file_tmp_bigtosmall_join_revisions="${WORKSPACE}/bigobjects_join_revisions.tmp" && rm -f "${file_tmp_bigtosmall_join_revisions}"
-
-file_tmp_bigtosmall_join_uniq="${WORKSPACE}/bigtosmall_join_uniq.tmp" && rm -rf "${file_tmp_bigtosmall_join_uniq}"
 
 file_tmp_bigtosmall_join_total="${WORKSPACE}/bigobjects_join_total.tmp" && rm -f "${file_tmp_bigtosmall_join_total}" && touch "${file_tmp_bigtosmall_join_total}"
 file_tmp_bigtosmall_join_total_revisions="${WORKSPACE}/bigobjects_join_total_revisions.tmp" && rm -f "${file_tmp_bigtosmall_join_total_revisions}" && touch "${file_tmp_bigtosmall_join_total_revisions}"
 
 file_output_sorted_size_files="${WORKSPACE}/bigtosmall_sorted_size_files.txt" && rm -f "${file_output_sorted_size_files}"
 file_output_sorted_size_files_revisions="${WORKSPACE}/bigtosmall_sorted_size_files_revisions.txt" && rm -f "${file_output_sorted_size_files_revisions}"
+file_output_sorted_size_files_final="${WORKSPACE}/bigtosmall_sorted_size_files_final.txt" && rm -f "${file_output_sorted_size_files_final}"
+
 file_output_branch_embedded="${WORKSPACE}/branches_embedded.txt" && rm -f "${file_output_branch_embedded}"
 file_output_branch_leaves="${WORKSPACE}/branches_leaves.txt" && rm -f "${file_output_branch_leaves}"
 file_output_branch_embedded_tagged="${WORKSPACE}/branches_embedded_tagged.txt" && rm -f "${file_output_branch_embedded_tagged}"
@@ -122,6 +142,10 @@ file_output_branch_leaves_tagged="${WORKSPACE}/branches_leaves_tagged.txt" && rm
 
 file_output_sorted_size_total="${WORKSPACE}/bigtosmall_sorted_size_total.txt" && rm -rf "${file_output_sorted_size_total}"
 file_output_sorted_size_total_revisions="${WORKSPACE}/bigtosmall_sorted_size_total_revisions.txt" && rm -rf "${file_output_sorted_size_total_revisions}"
+file_output_sorted_size_total_final="${WORKSPACE}/bigtosmall_sorted_size_total_final.txt" && rm -rf "${file_output_sorted_size_total_final}"
+file_output_sorted_size_no_extension="${WORKSPACE}/bigtosmall_sorted_size_no_extension.txt" && rm -rf "${file_output_sorted_size_no_extension}"
+file_output_sorted_size_extensions="${WORKSPACE}/bigtosmall_sorted_size_extensions.txt" && rm -rf "${file_output_sorted_size_extensions}"
+file_output_git_size_extensions="${WORKSPACE}/git_size_extensions.txt" && rm -rf "${file_output_git_size_extensions}"
 
 file_output_git_sizes="${WORKSPACE}/git_sizes.txt" && rm -rf "${file_output_git_sizes}"
 
@@ -167,32 +191,39 @@ fi
 if [[ ${skip_sizes:-} == "" ]]; then
   echo "Get git repo sizes:" 
   
-  git_size_total=$(du -sh "${git_dir}" | cut -f 1)
-  git_size_objects=$(du -sh "${git_dir}/objects" | cut -f 1)
-  git_size_pack=""
-  [[ -d "${pack_dir}" ]] && git_size_pack=$(du -sh "${pack_dir}" | cut -f 1)
+  git_size_total=$(du -sb "${git_dir}" | cut -f 1)
+  git_size_objects=$(du -sb "${git_dir}/objects" | cut -f 1)
+  git_size_pack="0"
+  [[ -d "${pack_dir}" ]] && git_size_pack=$(du -sb "${pack_dir}" | cut -f 1)
 
-  git_size_lfs=""
+  git_size_lfs="0"
   [[ -d "${git_dir}/lfs" ]] && {
-    git_size_lfs=$(du -sh "${git_dir}/lfs" | cut -f 1)
+    git_size_lfs=$(du -sb "${git_dir}/lfs" | cut -f 1)
   }
   git lfs ls-files --all > "${WORKSPACE}/git_lfs_files.txt" || {
     echo "No git lfs files or error during git lfs ls-files --all - skip"
     rm -f "${WORKSPACE}/git_lfs_files.txt"
   }
 
-  git_size_modules=""
-  [[ -d "${git_dir}/modules" ]] && git_size_modules=$(du -sh "${git_dir}/modules" | cut -f 1  )
+  git_size_modules="0"
+  [[ -d "${git_dir}/modules" ]] && git_size_modules=$(du -sb "${git_dir}/modules" | cut -f 1  )
 else
   echo "git lfs and modules sizes: skipped"
 fi
 
+declare git_size_total_mega git_size_objects_mega git_size_pack_mega git_size_lfs_mega git_size_modules_mega
+bytes_to_megabytes "${git_size_total}" git_size_total_mega
+bytes_to_megabytes "${git_size_objects}" git_size_objects_mega
+bytes_to_megabytes "${git_size_pack}" git_size_pack_mega
+bytes_to_megabytes "${git_size_lfs}" git_size_lfs_mega
+bytes_to_megabytes "${git_size_modules}" git_size_modules_mega
+
 cat <<EOF > ${file_output_git_sizes}
-git_size_total=${git_size_total}
-git_size_objects=${git_size_objects}
-git_size_pack=${git_size_pack}
-git_size_lfs=${git_size_lfs}
-git_size_modules=${git_size_modules}
+git_size_total=${git_size_total_mega}
+git_size_objects=${git_size_objects_mega}
+git_size_pack=${git_size_pack_mega}
+git_size_lfs=${git_size_lfs_mega}
+git_size_modules=${git_size_modules_mega}
 EOF
 
 cat ${file_output_git_sizes}
@@ -280,10 +311,7 @@ if [[ ! $(grep -E "^[a-f0-9]{40}[[:space:]]blob[[:space:]]+[0-9]+[[:space:]][0-9
   printf "Amount of objects: %s\n" "$(wc -l < "${file_tmp_bigobjects}")"
   join <(sort "${file_tmp_bigobjects}") <(sort "${file_tmp_allfileshas}") | sort -k 3 -n -r | cut -f 1,3,6-  -d ' ' > "${file_tmp_bigtosmall_join}"
 
-  touch "${file_tmp_bigtosmall_join_uniq}"
-  cat "${file_tmp_bigtosmall_join}" |  cut -d ' ' -f 3- > "${WORKSPACE}/bigtosmall_join_all.tmp"
-  cat -n "${WORKSPACE}/bigtosmall_join_all.tmp" | /usr/bin/sort -uk2 | /usr/bin/sort -n | cut -f2- > "${file_tmp_bigtosmall_join_uniq}"
-  amount_total_unique=$(wc -l < "${file_tmp_bigtosmall_join_uniq}")
+  amount_total_unique=$(awk '{ $1=""; $2=""; sub(/^  */, "", $0); if (!seen[$0]++) count++ } END { print count+0 }' "${file_tmp_bigtosmall_join}")
   printf "Amount of unique <path>/<file>: %s\n" "${amount_total_unique}"
 else
   printf "Amount of unique <path>/<file>: 0 - skip\n"
@@ -294,47 +322,72 @@ touch "${WORKSPACE}/bigtosmall_errors.txt"
 
 regex_idx_list='^([a-f0-9]{40}) ([0-9]+) (.*)$'
 
-progress_bar_init
-while read -r file; do
-  progress_bar_update
-  prefix_total=" "
-  size_total=0
-  count=0
-  while IFS=$'\n' read -r line; do
-    prefix=" "
-    if [[ "${line}" =~ $regex_idx_list ]] ; then
-      blob=${BASH_REMATCH[1]}
-      size=${BASH_REMATCH[2]}
-      size_total=$(( $size_total + $size ))
-      path_file=${BASH_REMATCH[3]}
-      count=$(( $count + 1 ))
-    else
-      echo "ERROR: Cannot parse ${file_tmp_bigtosmall_join}"
-      exit 1
-    fi
-    [[ "${file}" != "${path_file}" ]] && (echo "File: ${file} and path_file: ${path_file} are different!!! - something is wrong" && exit 10 )
-    if [[ "${default_blobs_map[${blob}]:-}" == "$path_file" ]]; then
-        prefix="H"
-        prefix_total="H"
-    else
-        if [[ "${branches_blobs_map[${blob}]:-}" == "$path_file" ]]; then
-          [[ ${prefix:-} == " " ]] && prefix="B"
-          [[ ${prefix_total:-} == " " ]] && prefix_total="B"
-        fi
-    fi
-    echo "$prefix $blob $size $path_file" >> "${file_output_sorted_size_files}"
-  done < <( file="${file//'.'/\\.}" && \
-            file="${file//'*'/\\*}" && \
-            file="${file//'+'/\\+}" && \
-            file="${file//'?'/\\?}" && \
-            file="${file//'('/\\(}" && \
-            file="${file//')'/\\)}" && \
-            file="${file//'['/\\[}" && \
-            file="${file//']'/\\]}" && \
-            file="${file//$/\\$}"  && \
-            grep -E "^[a-f0-9]{40}[[:space:]][0-9]+[[:space:]]${file}$" "${file_tmp_bigtosmall_join}" || echo "ERROR: $file: something went wrong" >> "${WORKSPACE}/bigtosmall_errors.txt")
-  printf "%s %s %s %s\n" "$size_total" "${prefix_total}" "$count" "$path_file">> "${file_tmp_bigtosmall_join_total}"
-done < "${file_tmp_bigtosmall_join_uniq}"
+file_tmp_default_blobs_map="${WORKSPACE}/default_blobs_map.tmp" && rm -f "${file_tmp_default_blobs_map}" && touch "${file_tmp_default_blobs_map}"
+for blob in "${!default_blobs_map[@]}"; do
+  printf "%s\t%s\n" "$blob" "${default_blobs_map[$blob]}" >> "${file_tmp_default_blobs_map}"
+done
+
+file_tmp_branches_blobs_map="${WORKSPACE}/branches_blobs_map.tmp" && rm -f "${file_tmp_branches_blobs_map}" && touch "${file_tmp_branches_blobs_map}"
+for blob in "${!branches_blobs_map[@]}"; do
+  printf "%s\t%s\n" "$blob" "${branches_blobs_map[$blob]}" >> "${file_tmp_branches_blobs_map}"
+done
+
+: > "${file_output_sorted_size_files}"
+: > "${file_tmp_bigtosmall_join_total}"
+awk -v default_map="${file_tmp_default_blobs_map}" \
+    -v branch_map="${file_tmp_branches_blobs_map}" \
+    -v details_out="${file_output_sorted_size_files}" \
+    -v totals_out="${file_tmp_bigtosmall_join_total}" \
+    'BEGIN {
+      while ((getline < default_map) > 0) {
+        default_path[$1] = $2
+      }
+      close(default_map)
+      while ((getline < branch_map) > 0) {
+        branch_path[$1] = $2
+      }
+      close(branch_map)
+    }
+    {
+      blob = $1
+      size = $2
+      $1 = ""
+      $2 = ""
+      sub(/^  */, "", $0)
+      path_file = $0
+
+      prefix = " "
+      if ((blob in default_path) && default_path[blob] == path_file) {
+        prefix = "H"
+      } else if ((blob in branch_path) && branch_path[blob] == path_file) {
+        prefix = "B"
+      }
+
+      print size, prefix, path_file >> details_out
+
+      if (!(path_file in seen)) {
+        seen[path_file] = 1
+        order[++order_count] = path_file
+        total_size[path_file] = 0
+        total_count[path_file] = 0
+        total_prefix[path_file] = " "
+      }
+
+      total_size[path_file] += size
+      total_count[path_file] += 1
+
+      if (prefix == "H") {
+        total_prefix[path_file] = "H"
+      } else if (prefix == "B" && total_prefix[path_file] == " ") {
+        total_prefix[path_file] = "B"
+      }
+    }
+    END {
+      for (i = 1; i <= order_count; i++) {
+        path_file = order[i]
+        printf "%s %s %s %s ( I )\n", total_size[path_file], total_prefix[path_file], total_count[path_file], path_file >> totals_out
+      }
+    }' "${file_tmp_bigtosmall_join}"
 /usr/bin/sort -u -h -r "${file_tmp_bigtosmall_join_total}" > "${file_output_sorted_size_total}"
 printf "\n\n"
 
@@ -343,10 +396,7 @@ echo "Investigate blobs that are packed in revisions in idx file: ${pack_file}"
 if [[ ! $(grep -E "^[a-f0-9]{40}[[:space:]]blob[[:space:]]+[0-9]+[[:space:]][0-9]+[[:space:]][0-9]+[[:space:]][0-9]+[[:space:]][a-f0-9]{40}$" "${file_verify_pack}" | awk -F" " '{print $1,$2,$3,$4,$5}' > "${file_tmp_bigobjects_revisions}") ]]; then
   printf "Amount of objects: %s\n" $(wc -l < "${file_tmp_bigobjects_revisions}")
   join <(sort "${file_tmp_bigobjects_revisions}") <(sort "${file_tmp_allfileshas}") | sort -k 3 -n -r | cut -f 1,3,6- -d ' '  > "${WORKSPACE}/bigtosmall_revisions_join.tmp"
-  touch "${WORKSPACE}/bigtosmall_revisions_join_uniq.tmp"
-  cat "${WORKSPACE}/bigtosmall_revisions_join.tmp" |  cut -d ' ' -f 3- > "${WORKSPACE}/bigtosmall_revisions_join_all.tmp"
-  cat -n "${WORKSPACE}/bigtosmall_revisions_join_all.tmp" | /usr/bin/sort -uk2 | /usr/bin/sort -n | cut -f2- > "${WORKSPACE}/bigtosmall_revisions_join_uniq.tmp"
-  amount_total_unique=$(wc -l < "${WORKSPACE}/bigtosmall_revisions_join_uniq.tmp")
+  amount_total_unique=$(awk '{ $1=""; $2=""; sub(/^  */, "", $0); if (!seen[$0]++) count++ } END { print count+0 }' "${WORKSPACE}/bigtosmall_revisions_join.tmp")
   printf "Amount of unique <path>/<file>: %s\n" "${amount_total_unique}"
 else
   printf "Amount of objects: 0 - skip\n"
@@ -354,50 +404,165 @@ fi
 
 echo "Generate file sorted list:"
 touch "${WORKSPACE}/bigtosmall_errors_revision.txt"
-progress_bar_init
-while read -r file; do
-  progress_bar_update
-  prefix_total=" "
-  size_total=0
-  count=0
-  while IFS=$'\n' read -r line; do
-    prefix=" "
-    if [[ "${line}" =~ $regex_idx_list ]] ; then
-      blob=${BASH_REMATCH[1]}
-      size=${BASH_REMATCH[2]}
-      size_total=$(( $size_total + $size ))
-      path_file=${BASH_REMATCH[3]}
-      count=$(( $count + 1 ))
-    else
-      echo "ERROR: reading : $line"
-      echo "       regex :   $regex_idx_list"
-      exit 1
-    fi
-    [[ $file != "$path_file" ]] && (echo "File: ${file} and path_file: ${path_file} are different!!! - something is wrong" && exit 11 )
-    if [[ "${default_blobs_map[${blob}]:-}" == "$path_file" ]]; then
-        prefix="H"
-        prefix_total="H"
-    else
-        if [[ "${branches_blobs_map[${blob}]:-}" == "$path_file" ]]; then
-          [[ ${prefix:-} == " " ]] && prefix="B"
-          [[ ${prefix_total:-} == " " ]] && prefix_total="B"
-        fi
-    fi
-    echo "$prefix $blob $size $path_file" >> "${file_output_sorted_size_files_revisions}"
-  done < <( file="${file//'.'/\\.}" && \
-            file="${file//'*'/\\*}" && \
-            file="${file//'+'/\\+}" && \
-            file="${file//'?'/\\?}" && \
-            file="${file//'('/\\(}" && \
-            file="${file//')'/\\)}" && \
-            file="${file//'['/\\[}" && \
-            file="${file//']'/\\]}" && \
-            file="${file//$/\\$}"  && \
-            grep -E "^[a-f0-9]{40}[[:space:]][0-9]+[[:space:]]${file}$" "${WORKSPACE}/bigtosmall_revisions_join.tmp"  || echo "ERROR: $file: something went wrong" >> "${WORKSPACE}/bigtosmall_errors_revision.txt")
-  printf "%s %s %s %s\n" "$size_total" "${prefix_total}" "$count" "$path_file">> "${file_tmp_bigtosmall_join_total_revisions}"
-done < "${WORKSPACE}/bigtosmall_revisions_join_uniq.tmp"
+: > "${file_output_sorted_size_files_revisions}"
+: > "${file_tmp_bigtosmall_join_total_revisions}"
+awk -v default_map="${file_tmp_default_blobs_map}" \
+    -v branch_map="${file_tmp_branches_blobs_map}" \
+    -v details_out="${file_output_sorted_size_files_revisions}" \
+    -v totals_out="${file_tmp_bigtosmall_join_total_revisions}" \
+    'BEGIN {
+      while ((getline < default_map) > 0) {
+        default_path[$1] = $2
+      }
+      close(default_map)
+      while ((getline < branch_map) > 0) {
+        branch_path[$1] = $2
+      }
+      close(branch_map)
+    }
+    {
+      blob = $1
+      size = $2
+      $1 = ""
+      $2 = ""
+      sub(/^  */, "", $0)
+      path_file = $0
+
+      prefix = " "
+      if ((blob in default_path) && default_path[blob] == path_file) {
+        prefix = "H"
+      } else if ((blob in branch_path) && branch_path[blob] == path_file) {
+        prefix = "B"
+      }
+
+      print size, prefix, path_file >> details_out
+
+      if (!(path_file in seen)) {
+        seen[path_file] = 1
+        order[++order_count] = path_file
+        total_size[path_file] = 0
+        total_count[path_file] = 0
+        total_prefix[path_file] = " "
+      }
+
+      total_size[path_file] += size
+      total_count[path_file] += 1
+
+      if (prefix == "H") {
+        total_prefix[path_file] = "H"
+      } else if (prefix == "B" && total_prefix[path_file] == " ") {
+        total_prefix[path_file] = "B"
+      }
+    }
+    END {
+      for (i = 1; i <= order_count; i++) {
+        path_file = order[i]
+        printf "%s %s %s %s ( P )\n", total_size[path_file], total_prefix[path_file], total_count[path_file], path_file >> totals_out
+      }
+    }' "${WORKSPACE}/bigtosmall_revisions_join.tmp"
 /usr/bin/sort -u -h -r "${file_tmp_bigtosmall_join_total_revisions}" > "${file_output_sorted_size_total_revisions}"
 printf "\n\n"
+
+cat ${file_output_sorted_size_total_revisions} ${file_output_sorted_size_total} | sort -k 1 -h -r > "${file_output_sorted_size_total_final}"
+cat ${file_output_sorted_size_files_revisions} ${file_output_sorted_size_files} | sort -k 1 -h -r > "${file_output_sorted_size_files_final}"
+
+# Collect entries whose basename has no extension from the final totals file.
+awk '{
+  line = $0
+  path = $0
+  sub(/^[^ ]+ [^ ]+ [^ ]+ /, "", path)
+  sub(/ \( [IP] \)$/, "", path)
+  n = split(path, parts, "/")
+  base = parts[n]
+  if (base !~ /\./) print line
+}' "${file_output_sorted_size_total_final}" > "${file_output_sorted_size_no_extension}"
+
+# Aggregate total size by file extension from the final totals report.
+awk 'BEGIN { OFS=" " }
+{
+  size = $1
+  $1 = ""
+  $2 = ""
+  $3 = ""
+  sub(/^ +/, "", $0)
+  sub(/ \( [IP] \)$/, "", $0)
+
+  file = $0
+  n = split(file, parts, "/")
+  name = parts[n]
+
+  ext = "[no_ext]"
+  if (name ~ /\./) {
+    ext = name
+    sub(/^.*\./, "", ext)
+    if (ext == "") ext = "[no_ext]"
+  }
+
+  ext = tolower(ext)
+  ext_total[ext] += size
+  ext_count[ext] += 1
+}
+END {
+  for (e in ext_total) {
+    printf "%s %s %s\n", ext_total[e], ext_count[e], e
+  }
+}' "${file_output_sorted_size_total_final}" | sort -k 1 -n -r > "${file_output_sorted_size_extensions}"
+
+awk 'NR > 0 {
+  bytes = $1
+  count = $2
+  ext = $3
+  mb = bytes / 1000000
+  if (mb == int(mb)) size_m = sprintf("%.0fM", mb)
+  else size_m = sprintf("%.1fM", mb)
+  printf "%s=%s (%s)\n", ext, size_m, count
+}' "${file_output_sorted_size_extensions}" > "${file_output_git_size_extensions}"
+
+git_size_extensions=$(awk 'NR > 0 {
+  ext = $3
+  if (out == "") out = ext
+  else out = out "," ext
+}
+END {
+  if (out == "") print "[no_ext]"
+  else print out
+}' "${file_output_sorted_size_extensions}")
+
+# Find the largest single file revision in size in bytes and convert it to a human-readable format
+git_size_largest="0b"
+if [[ -s "${file_output_sorted_size_files_final}" ]]; then
+  git_size_largest_bytes=$(head -n 1 "${file_output_sorted_size_files_final}" | cut -f 1 -d ' ')
+  bytes_to_megabytes "${git_size_largest_bytes}" git_size_largest
+fi
+
+git_verdict="n/a"
+if [[ ${git_size_largest_bytes} -gt $((1024*1024*100)) ]]; then
+  git_verdict="Must LFS"
+elif [[ ${git_size_largest_bytes} -gt $((1024*1024*10)) ]]; then
+  git_verdict="Could LFS"
+else
+  git_verdict="No issues detected"
+fi
+
+cat <<EOF >> ${file_output_git_sizes}
+git_size_largest=${git_size_largest}
+git_size_extensions=${git_size_extensions}
+git_verdict=${git_verdict}
+EOF
+
+# Generate HTML tree visualization
+echo "Generating HTML tree visualization..."
+file_output_html="${WORKSPACE}/git_sizes_tree.html" && rm -f "${file_output_html}"
+if command -v python3 &>/dev/null; then
+  if [[ -f "${script_dir}/git-object-sizes-tree-render.py" ]]; then
+    python3 "${script_dir}/git-object-sizes-tree-render.py" "${file_output_sorted_size_total_final}" "${file_output_html}" "$(pwd)"
+    echo "HTML tree visualization: ${file_output_html}"
+  else
+    echo "git-object-sizes-tree-render.py not found - skipping HTML tree generation"
+  fi
+else
+  echo "python3 not found - skipping HTML tree generation"
+fi
 
 echo "Investigate if issues occured"
 issues_found=false
@@ -426,7 +591,7 @@ else
     echo "Debugging mode : leave *.tmp files"
   else
     echo "Removing *.tmp files"
-    rm -rf *.tmp
+    rm -rf "${WORKSPACE}"/*.tmp
   fi
 fi 
 
