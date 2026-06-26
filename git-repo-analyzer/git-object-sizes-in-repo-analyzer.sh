@@ -149,6 +149,10 @@ file_output_git_size_extensions="${WORKSPACE}/git_size_extensions.txt" && rm -rf
 
 file_output_git_sizes="${WORKSPACE}/git_sizes.txt" && rm -rf "${file_output_git_sizes}"
 
+git_sizer_file_verbose="${WORKSPACE}/git_sizer_verbose.txt" && rm -f "${git_sizer_file_verbose}"
+git_sizer_file_stderr="${WORKSPACE}/git_sizer_verbose.stderr.txt" && rm -f "${git_sizer_file_stderr}"
+
+
 printf "Clean old temp packs(if present): \n"
 for idx in $(find ${pack_dir} -name '.tmp*.pack' -o -name '.tmp*.idx') ; do
  echo "$idx"
@@ -550,16 +554,79 @@ git_size_extensions=${git_size_extensions}
 git_verdict=${git_verdict}
 EOF
 
+# Enable with: run_git_sizer=true ./git-object-sizes-in-repo-analyzer.sh [repo-path]
+if [[ "${run_git_sizer:-true}" == "true" ]]; then
+  echo "Running git-sizer in verbose mode..."
+  git_sizer_repo_dir="${script_dir}/git-sizer"
+  git_sizer_bin_dir="${git_sizer_repo_dir}/bin"
+  git_sizer_cmd="${git_sizer_bin_dir}/git-sizer"
+  git_sizer_repo_top=""
+  git_sizer_repo_rel=""
+
+  rm -f "${git_sizer_file_verbose}" "${git_sizer_file_stderr}"
+
+  git_sizer_repo_top=$(git -C "${script_dir}" rev-parse --show-toplevel 2>/dev/null || true)
+  if [[ -n "${git_sizer_repo_top}" ]]; then
+    git_sizer_repo_rel="${git_sizer_repo_dir#${git_sizer_repo_top}/}"
+  fi
+
+  if ! git -C "${git_sizer_repo_dir}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    echo "git-sizer submodule not found at ${git_sizer_repo_dir}; skipping git-sizer run"
+    if [[ -n "${git_sizer_repo_top}" && -n "${git_sizer_repo_rel}" ]]; then
+      git -C "${git_sizer_repo_top}" submodule update --init --remote --checkout --recursive -- "${git_sizer_repo_rel}" || echo "Failed to initialize git-sizer submodule; trying fallback clone"
+    else
+      echo "Unable to resolve git-sizer repository top-level; skipping git-sizer run"
+    fi
+  fi
+
+  if [[ ! -f "${git_sizer_repo_dir}/go.mod" ]]; then
+    echo "git-sizer go.mod not found at ${git_sizer_repo_dir}/go.mod"
+    if command -v git >/dev/null 2>&1; then
+      echo "Attempting fallback clone of git-sizer repository..."
+      rm -rf "${git_sizer_repo_dir}"
+      git clone --depth=1 https://github.com/github/git-sizer "${git_sizer_repo_dir}" || echo "Fallback clone failed; skipping git-sizer run"
+    fi
+  fi
+
+  if [[ ! -f "${git_sizer_repo_dir}/go.mod" ]]; then
+    echo "git-sizer still unavailable after fallback; skipping git-sizer run"
+    echo "Contents of ${git_sizer_repo_dir}:"
+    ls -la "${git_sizer_repo_dir}" 2>/dev/null || true
+  elif ! command -v docker >/dev/null 2>&1; then
+    echo "docker not found; skipping git-sizer run"
+  elif ! docker info >/dev/null 2>&1; then
+    echo "docker daemon not reachable; skipping git-sizer run"
+  else
+    mkdir -p "${git_sizer_bin_dir}"
+    docker run --rm \
+      -v "${git_sizer_repo_dir}":/src \
+      -w /src \
+      golang:1.21 \
+      sh -c 'go build -buildvcs=false -o bin/git-sizer ./'
+  fi
+
+  if [[ -x "${git_sizer_cmd}" ]]; then
+    "${git_sizer_cmd}" --verbose > "${git_sizer_file_verbose}" 2> "${git_sizer_file_stderr}" || true
+    echo "git-sizer verbose output: ${git_sizer_file_verbose}"
+    if [[ -s "${git_sizer_file_stderr}" ]]; then
+      echo "git-sizer stderr output: ${git_sizer_file_stderr}"
+    else
+      rm -f "${git_sizer_file_stderr}"
+    fi
+  else
+    echo "git-sizer binary not available after docker build; skipping git-sizer execution"
+  fi
+else
+  echo "run_git_sizer != true - skip git-sizer"
+fi
+
+
 # Generate HTML tree visualization
 echo "Generating HTML tree visualization..."
 file_output_html="${WORKSPACE}/git_sizes_tree.html" && rm -f "${file_output_html}"
 if command -v python3 &>/dev/null; then
-  if [[ -f "${script_dir}/git-object-sizes-tree-render.py" ]]; then
-    python3 "${script_dir}/git-object-sizes-tree-render.py" "${file_output_sorted_size_total_final}" "${file_output_html}" "$(pwd)"
-    echo "HTML tree visualization: ${file_output_html}"
-  else
-    echo "git-object-sizes-tree-render.py not found - skipping HTML tree generation"
-  fi
+  python3 "${script_dir}/git-object-sizes-tree-render.py" "${file_output_sorted_size_total_final}" "${file_output_html}" "$(pwd)"
+  echo "HTML tree visualization: ${file_output_html}"
 else
   echo "python3 not found - skipping HTML tree generation"
 fi
