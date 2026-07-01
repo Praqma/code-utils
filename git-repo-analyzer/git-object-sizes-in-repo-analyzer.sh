@@ -86,10 +86,12 @@ if [[ "${WORKSPACE:-}" == "" ]]; then
 fi
 if [[ "${1:-}" != "" ]]; then
   test -e ${1} && cd ${1}
+  printf "Changed working directory to: %s\n" "$(pwd)"
 fi
 echo
 
 git_dir="$(git rev-parse --git-dir)"
+echo "git_dir=${git_dir}"
 pack_dir="${git_dir}/objects"
 if [[ $(git rev-parse --is-bare-repository) == true ]]; then
   echo "repo_type=bare  ( bare / normal )"
@@ -152,6 +154,23 @@ file_output_git_sizes="${WORKSPACE}/git_sizes.txt" && rm -rf "${file_output_git_
 git_sizer_file_verbose="${WORKSPACE}/git_sizer_verbose.txt" && rm -f "${git_sizer_file_verbose}"
 git_sizer_file_stderr="${WORKSPACE}/git_sizer_verbose.stderr.txt" && rm -f "${git_sizer_file_stderr}"
 
+git log -1 > /dev/null || {
+  exit_code=$?
+  if [[ $exit_code -ne 128 ]]; then
+    echo "[ERROR] unknown error executing 'git log' in $git_repo: git exited with code $exit_code"
+    exit $exit_code
+  fi
+  echo "[WARNING] likely empty git repo: $git_repo"
+  (
+    echo "git_size_total=0"
+    echo "git_size_objects=0"
+    echo "git_size_pack=0"
+    echo "git_size_lfs=0"
+    echo "git_size_modules=0"
+    echo "git_verdict=empty"
+  ) > "$output_dir/git_sizes.txt"
+  exit 0;
+}
 
 printf "Clean old temp packs(if present): \n"
 for idx in $(find ${pack_dir} -name '.tmp*.pack' -o -name '.tmp*.idx') ; do
