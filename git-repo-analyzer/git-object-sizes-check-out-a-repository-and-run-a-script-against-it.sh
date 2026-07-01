@@ -34,6 +34,6 @@ while IFS= read -r git_repo; do
   else
     git \
         -c http.extraHeader="Authorization: Bearer ${BITBUCKET_TOKEN}" \
-         clone --recurse-submodules "$git_repo" "$repo_full_dir"
+         clone --no-checkout --recurse-submodules "$git_repo" "$repo_full_dir"
   fi
 done < <(printf '%s\n' "$PROJECT_LIST" | tr ',' '\n')

@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
 # Source step: Run a script against repos
 
+set -euo pipefail
 set -x
 root=$(pwd)
 exit_code=0
-git_base_dir=/home/brew/runner-workspace
+[[ ${git_base_dir:-} == "" ]] && { echo "Please set git_base_dir to parent of the repo dir"; exit 1; }
 mkdir -p "$git_base_dir"
 output_dir_base="$root/results/orig"
 mkdir -p "$output_dir_base"
 
-export GIT_FILETYPES="$root/scripts/git-workspace-file-type-analyzer.sh"
-export GIT_SIZE="$root/scripts/git-object-sizes-in-repo-analyzer.sh"
+export GIT_FILETYPES="${0%/*}/git-workspace-file-type-analyzer.sh"
+export GIT_SIZE="${0%/*}/git-object-sizes-in-repo-analyzer.sh"
 
 while IFS= read -r git_repo; do
   [ -z "$git_repo" ] && continue
@@ -42,7 +43,7 @@ while IFS= read -r git_repo; do
   popd
 
 done < <(printf '%s\n' "$PROJECT_LIST" | tr ',' '\n')
-python3 generate_overview.py ${output_dir_base} ${output_dir_base}/overview.html
+python3 "${0%/*}/generate_overview.py" "${output_dir_base}" "${output_dir_base}/overview.html"
 if [[ $exit_code -eq 128 ]]; then
   echo "::warning::One or more repositories failed to process. Most likely cause: empty repository. Please check the logs for details."
   exit 0
