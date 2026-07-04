@@ -21,6 +21,15 @@ git lfs --version || true
 git --version || true
 python3 --version || true
 
+function fetch_me {
+  git \
+    -c http.extraHeader="Authorization: Bearer ${BITBUCKET_TOKEN}" \
+      -C "$repo_full_dir" fetch origin \
+        --recurse-submodules \
+        -apP \
+        --force
+}
+
 while IFS= read -r git_repo; do
   [ -z "$git_repo" ] && continue
   repo_name=$(basename "$git_repo" .git)
@@ -28,12 +37,12 @@ while IFS= read -r git_repo; do
   echo "Processing repository: $git_repo"
 
   if git -C "$repo_full_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    git \
-        -c http.extraHeader="Authorization: Bearer ${BITBUCKET_TOKEN}" \
-         -C "$repo_full_dir" fetch origin --recurse-submodules
+    fetch_me
   else
     git \
         -c http.extraHeader="Authorization: Bearer ${BITBUCKET_TOKEN}" \
-         clone --no-checkout --recurse-submodules "$git_repo" "$repo_full_dir"
+         clone --sparse --recurse-submodules "$git_repo" "$repo_full_dir"
+    # get all refs, including tags and branches
+    fetch_me
   fi
 done < <(printf '%s\n' "$PROJECT_LIST" | tr ',' '\n')

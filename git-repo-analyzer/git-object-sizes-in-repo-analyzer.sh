@@ -212,22 +212,25 @@ else
 fi
 
 if [[ ${skip_sizes:-} == "" ]]; then
-  echo "Get git repo sizes:" 
-  
+  echo "Get git repo size total"   
   git_size_total=$(du -sb "${git_dir}" | cut -f 1)
+  echo "Get git repo size objects" 
   git_size_objects=$(du -sb "${git_dir}/objects" | cut -f 1)
   git_size_pack="0"
   [[ -d "${pack_dir}" ]] && git_size_pack=$(du -sb "${pack_dir}" | cut -f 1)
 
+  echo "Get git lfs sizes"
   git_size_lfs="0"
   [[ -d "${git_dir}/lfs" ]] && {
     git_size_lfs=$(du -sb "${git_dir}/lfs" | cut -f 1)
   }
+  echo "Get git lfs files"
   git lfs ls-files --all > "${WORKSPACE}/git_lfs_files.txt" || {
     echo "No git lfs files or error during git lfs ls-files --all - skip"
     rm -f "${WORKSPACE}/git_lfs_files.txt"
   }
 
+  echo "Get git modules sizes"
   git_size_modules="0"
   [[ -d "${git_dir}/modules" ]] && git_size_modules=$(du -sb "${git_dir}/modules" | cut -f 1  )
 else
