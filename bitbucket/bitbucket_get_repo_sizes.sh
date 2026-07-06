@@ -185,16 +185,15 @@ for bitbucket_project in "${projects[@]}"; do
     fi
 
     printf "%-60s : %-10s : %-20s : %-10s : %-10s : %-5s : %-5s : %s\n"  "${bitbucket_project}/repos/$slug" "${repo_status}" "${size_bytes:-?}" "${size_mb:-?}" "${size_gb:-?}" "${lfs_status}" "${repo_id}" "${repo_url} / ${repo_description}"
-    printf "%-60s : %-10s : %-20s : %-10s : %-10s : %-5s : %-5s : %s\n"  "${bitbucket_project}/repos/$slug" "${repo_status}" "${size_bytes:-?}" "${size_mb:-?}" "${size_gb:-?}" "${lfs_status}" "${repo_id}" "${repo_url} / ${repo_description}" >> $output_file_name
-    printf "${bitbucket_project}/$slug\n" >> ${WORKSPACE:-.}/$(echo $url | cut -d / -f 3 | cut -d : -f 1).${bitbucket_project}.repos.txt
-    unset _lfs_exit_code
+    printf "%-60s : %-10s : %-20s : %-10s : %-10s : %-5s : %-5s : %s\n"  "${bitbucket_project}/repos/$slug" "${repo_status}" "${size_bytes:-?}" "${size_mb:-?}" "${size_gb:-?}" "${lfs_status}" "${repo_id}" "${repo_url} / ${repo_description}" ${WORKSPACE:-.}/$(echo $url | cut -d / -f 3 | cut -d : -f 1).${bitbucket_project}.repos.txt
   done
   printf "Project count/size(MB): ${bitbucket_project} : ${slugs_count:-0} / ~${project_size_mb:-0} MB\n\n" >> ${WORKSPACE:-.}/$(echo $url | cut -d / -f 3 | cut -d : -f 1).${bitbucket_project}.repos.txt
   server_size_mb=$(( ${server_size_mb:-0} + ${project_size_mb:-0} ))
   unset slugs_count
 done
 printf "Projects-count/repos-count/size(MB):: ${projects_count:-0} / ${projects_slugs_counts:-0} / ~${server_size_mb:-0} MB\n" > ${WORKSPACE:-.}/$(echo $url | cut -d / -f 3 | cut -d : -f 1).size.mb.txt
-cat ${WORKSPACE:-.}/$(echo $url | cut -d / -f 3 | cut -d : -f 1).size.mb.txt
 
-cat ${WORKSPACE:-.}/$(echo $url | cut -d / -f 3 | cut -d : -f 1).*.repos.txt
+#cat ${WORKSPACE:-.}/$(echo $url | cut -d / -f 3 | cut -d : -f 1).size.mb.txt
+
+#cat ${WORKSPACE:-.}/$(echo $url | cut -d / -f 3 | cut -d : -f 1).*.repos.txt
 
