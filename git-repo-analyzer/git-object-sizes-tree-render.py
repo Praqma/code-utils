@@ -213,7 +213,7 @@ button:hover{background:#45475a}
 .hdr .h-bar{width:450px;flex-shrink:0;text-align:center}
 .hdr .h-sz{width:82px;flex-shrink:0;text-align:right}
 .hdr .h-cnt{width:56px;flex-shrink:0;text-align:right}
-.node{margin:1px 0}
+.node{margin:1px 0;content-visibility:auto;contain-intrinsic-block-size:26px}
 .row{display:flex;align-items:center;gap:6px;padding:2px 6px;border-radius:4px;cursor:default}
 .row.clickable{cursor:pointer}
 .row:hover{background:#2a2a3e}
@@ -341,6 +341,8 @@ let pathRegex = null;
 let showH = true;
 let showB = true;
 let showHist = true;
+let renderTimer = null;
+let renderToken = 0;
 
 function normalizeLeafPath(path) {
   return (path || '').replace(/\s+\(\s*[IP]\s*\)\s*$/i, '').trim();
@@ -498,6 +500,15 @@ function splitNameAndTag(name) {
   return { displayName: m[1], packIdx: m[2] };
 }
 
+function ensureChildrenRendered(chEl) {
+  if (!chEl._lazyChildren) return;
+  const frag = document.createDocumentFragment();
+  for (const c of chEl._lazyChildren) frag.appendChild(buildNode(c, chEl._lazyDepth + 1));
+  chEl.appendChild(frag);
+  delete chEl._lazyChildren;
+  delete chEl._lazyDepth;
+}
+
 function buildNode(node, depth) {
   const isDir = node.d;
   const parsed = splitNameAndTag(node.n);
@@ -563,20 +574,25 @@ function buildNode(node, depth) {
   if (hasKids) {
     const ch = document.createElement('div');
     ch.className = 'children';
-    for (const c of node.ch) ch.appendChild(buildNode(c, depth + 1));
-    div.appendChild(ch);
 
     const startCollapsed = depth >= 1;
     if (startCollapsed) {
+      // Lazy: store child data, don't build DOM until first expand
       div.classList.add('collapsed');
       tog.innerHTML = '&#9654;';
       ico.innerHTML = '&#128193;';
+      ch._lazyChildren = node.ch;
+      ch._lazyDepth = depth;
+    } else {
+      for (const c of node.ch) ch.appendChild(buildNode(c, depth + 1));
     }
+    div.appendChild(ch);
 
     row.onclick = () => {
       const collapsed = div.classList.toggle('collapsed');
       tog.innerHTML = collapsed ? '&#9654;' : '&#9660;';
       ico.innerHTML = collapsed ? '&#128193;' : '&#128194;';
+      if (!collapsed) ensureChildrenRendered(ch);
     };
   } else if (historicalLeaf) {
     row.title = 'Right-click to show git log history output';
@@ -614,11 +630,16 @@ function closeLogModal() {
 }
 
 function expandAll() {
-  document.querySelectorAll('.node.collapsed').forEach(n => {
-    n.classList.remove('collapsed');
-    const t = n.querySelector(':scope>.row>.tog'); if (t) t.innerHTML = '&#9660;';
-    const i = n.querySelector(':scope>.row>.ico'); if (i && i.classList.contains('ico-dir')) i.innerHTML = '&#128194;';
-  });
+  function expandNode(el) {
+    const ch = el.querySelector(':scope>.children');
+    if (!ch) return;
+    ensureChildrenRendered(ch);
+    el.classList.remove('collapsed');
+    const t = el.querySelector(':scope>.row>.tog'); if (t) t.innerHTML = '&#9660;';
+    const i = el.querySelector(':scope>.row>.ico'); if (i && i.classList.contains('ico-dir')) i.innerHTML = '&#128194;';
+    el.querySelectorAll(':scope>.children>.node').forEach(expandNode);
+  }
+  document.querySelectorAll('#tree>.node').forEach(expandNode);
 }
 
 function collapseAll() {
@@ -635,7 +656,9 @@ function setDepth(max) {
   collapseAll();
   function openTo(el, d) {
     if (d >= max) return;
-    if (el.querySelector(':scope>.children')) {
+    const ch = el.querySelector(':scope>.children');
+    if (ch) {
+      ensureChildrenRendered(ch);
       el.classList.remove('collapsed');
       const t = el.querySelector(':scope>.row>.tog'); if (t) t.innerHTML = '&#9660;';
       const i = el.querySelector(':scope>.row>.ico'); if (i && i.classList.contains('ico-dir')) i.innerHTML = '&#128194;';
@@ -672,6 +695,76 @@ function renderTree() {
   }
 }
 
+function renderTreeAsync(token) {
+  const tree = document.getElementById('tree');
+  const status = document.getElementById('filter-status');
+  if (token !== renderToken) return;
+
+  const filteredRoot = {
+    ...DATA,
+    ch: (DATA.ch || []).map(c => filterTree(c, '')).filter(Boolean)
+  };
+
+  if (token !== renderToken) return;
+
+  renderExtensionTable(filteredRoot.ch);
+  tree.innerHTML = '';
+
+  const topNodes = filteredRoot.ch || [];
+  let idx = 0;
+  const chunkSize = 24;
+
+  function appendChunk() {
+    if (token !== renderToken) return;
+
+    const frag = document.createDocumentFragment();
+    let n = 0;
+    while (idx < topNodes.length && n < chunkSize) {
+      frag.appendChild(buildNode(topNodes[idx], 0));
+      idx++;
+      n++;
+    }
+    tree.appendChild(frag);
+
+    if (idx < topNodes.length) {
+      requestAnimationFrame(appendChunk);
+      return;
+    }
+
+    if (!pathRegexText) setDepth(1);
+
+    const totalVisible = filteredRoot.ch.reduce((sum, c) => sum + countVisibleFiles(c), 0);
+    const totalVisibleSize = filteredRoot.ch.reduce((sum, c) => sum + sumVisibleFileSize(c), 0);
+    if (pathRegexText || !showH || !showB || !showHist) {
+      status.classList.remove('err');
+      status.textContent = totalVisible + ' matching file(s), total ' + fmtSz(totalVisibleSize);
+    } else {
+      status.textContent = '';
+    }
+  }
+
+  requestAnimationFrame(appendChunk);
+}
+
+function scheduleRender(debounceMs) {
+  const status = document.getElementById('filter-status');
+  if (renderTimer) {
+    clearTimeout(renderTimer);
+    renderTimer = null;
+  }
+
+  const token = ++renderToken;
+  if (pathRegexText) {
+    status.classList.remove('err');
+    status.textContent = 'Filtering...';
+  }
+
+  renderTimer = setTimeout(() => {
+    renderTimer = null;
+    renderTreeAsync(token);
+  }, debounceMs);
+}
+
 (function () {
   let fc = 0;
   function countFiles(n) { if (!n.d) fc++; if (n.ch) n.ch.forEach(countFiles); }
@@ -695,15 +788,15 @@ function renderTree() {
 
   typeH.addEventListener('change', () => {
     syncTypeFilters();
-    renderTree();
+    scheduleRender(0);
   });
   typeB.addEventListener('change', () => {
     syncTypeFilters();
-    renderTree();
+    scheduleRender(0);
   });
   typeHist.addEventListener('change', () => {
     syncTypeFilters();
-    renderTree();
+    scheduleRender(0);
   });
 
   syncTypeFilters();
@@ -713,14 +806,19 @@ function renderTree() {
     if (!pathRegexText) {
       pathRegex = null;
       status.classList.remove('err');
-      renderTree();
+      scheduleRender(0);
       return;
     }
     try {
       pathRegex = new RegExp(pathRegexText, 'i');
       status.classList.remove('err');
-      renderTree();
+      scheduleRender(140);
     } catch (e) {
+      renderToken += 1;
+      if (renderTimer) {
+        clearTimeout(renderTimer);
+        renderTimer = null;
+      }
       pathRegex = null;
       status.classList.add('err');
       status.textContent = 'Invalid regex';
@@ -735,7 +833,7 @@ function renderTree() {
     if (ev.key === 'Escape') closeLogModal();
   });
 
-  renderTree();
+  scheduleRender(0);
 })();
 </script>
 </body>
