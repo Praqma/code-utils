@@ -1,53 +1,63 @@
-#Possible migration path of in-compatible and/or in-efficient repos from unrestricted repo managers to restricted repo managers
+# Possible migration path for incompatible and/or inefficient repositories when moving from unrestricted to restricted repository managers
 
-The problems can be several folded: 
-- too large single objects
-- too big commits / require too big pushes
-- too bit repos in general
-- too many repos
+The problems can take several forms:
+- single objects that are too large
+- commits that are too large and therefore require very large pushes
+- repositories that are too large in general
+- too many repositories
+
+This write-up is intentionally abstract. It does not define exact blob or repository size thresholds, because such limits vary by platform, tooling, and organizational context.
 
 ## Solution options
 
-The possible solutions to the problems are discussion in chronilogic order. A few principle to have in mind is:
-- Developers should only make a single commit for delivering solution to their assigned backlog item.
-- Release of (sub)systems should not demand the structure and comprise the first principle. Tooling and constantly split repos if subsets should be used elsewhere and in other contexts for example as submodules.
+Possible solutions are described below in priority order. A few principles to keep in mind:
+- Developers should, by default, deliver a solution to an assigned backlog item within one repository. Exceptions can apply when split delivery is required by regulatory constraints, access boundaries, or cross-product dependencies.
+- Release structure for (sub)systems should support that principle. Use tooling and repository splitting when subsets must be consumed elsewhere, for example as submodules.
 
-### Split of repos (mono -> separate) 
+### Split repositories (monolith -> separate repos)
 
-A "mono-repo" is a repo with more than one purpose, artifact and/or process ) can be split into split into several repos that then each have:
-- a verification strategy ( how to verify changes )
-- a branching strategý 
-- a releasing cadiance/strategý
-- a separate governance and processes
+A monorepo (a repository with more than one purpose, artifact, and/or process) can be split into multiple repositories so that each one has:
+- a verification strategy (how to verify changes)
+- a branching strategy
+- a release cadence/strategy
+- separate governance and processes
 
-It is important to understand what a split will cause of friction for developers. It was "together" in the first place for a reason. If the splitted is still needed as a dependency/resource for development and/verification.
+It is important to understand the developer friction that a split can cause. If components were kept together originally, there was usually a reason. The split components may still be needed as dependencies/resources during development and verification.
 
-It could be tools/artifacts parts of the repo and that could be split and then added as a submodule. Many tools/artifact versions could be handled in isolated artifact mgmt systems including git-artifact as lean way to store these isolated parts.
+Tools/artifact parts of a repository can be separated and added back as submodules. Multiple tool/artifact versions can also be handled in isolated artifact management systems, including git-artifact*) as a lean way to store isolated parts.
 
-NOTE: Teams nor organization are mentioned here. We are talking about software architectual elements that can produce individual artifacts. "Teams"/orgs are solved in boards and backlog - not in git structure. 
+Note: Teams and organizations are not discussed here. This document is about software architectural elements that produce individual artifacts. Teams/orgs are managed in boards and backlogs, not in Git structure.
 
-### Merge repos
+### Merge repositories
 
-The opersite of "mono" repos is too many repos. The artifacts are governed, developed, released together. It can lead merging of repos for the benefit of developer experience and performance 
+The opposite of monorepos is having too many repositories. When artifacts are governed, developed, and released together, it can be beneficial to merge repositories for improved developer experience and performance.
 
-### Large path/objects
+### Large paths/objects
 
-There are a few solutions. The above mentioned split could handle some friction regarding large object, but the underlaying patterns remain and should still be handled. 
+There are several options. The repository split mentioned above can reduce some friction around large objects, but underlying patterns usually remain and should still be addressed.
 
 #### Tools and artifacts
 
-These parts are often dependencies/resources and it fits nicely with own governance and execution. They should in seprate artifact handling systems and then handled as dependencies/resources. It could still be in git, but then as a git-artifact and added as a submodule. Alternatively a complete separately artifact management system.
+These parts are often dependencies/resources and fit well with separate governance and execution. They should be handled in separate artifact systems and then consumed as dependencies/resources. It can still be done in Git, for example as git-artifact added through submodules. Another option is a fully separate artifact management system.
 
-#### Single unmergable large files - in kind of dependencies/resources
+#### Single unmergeable large files as dependencies/resources
 
-These files are often binaries but does not have to be. It could also be html, XML, json etc or autogenerated( not AI ) code. The solution is often a LFS ( Git Large Files System ) - also if a split of a mono repo is already in the design - we still likely want to LFS for the long term sustanability.
+These files are often binaries, but not always. They can also be HTML, XML, JSON, and autogenerated (not AI-generated) code. The solution is often LFS (Git Large File Storage). Even when a monorepo split is planned, LFS is still often needed for long-term sustainability.
 
-#### Single unmergable large files - in kind of source code
+#### Single unmergeable large files as source code
 
-Any files that are considered source should be version control, and for the time writing, the answer is Git. It could be vector, wav, mpeg files or source files from code generation tools. The should like also be LFS'ed. This is for several reasons. The longterm sustanability should always be considered and weighted. In some cases the files are large, generated but still pull/merge request reviewable hence LFS is not the solution. Splitting to a separate repo could be the best option with submodule that is just tracking "main-line" ( newer Git version ). The benefit is that the hard handling of large repo sizes is a separate concern and squashed releases etc can be done to obtain the sustanability.
+Files considered source should be version-controlled, and at the time of writing the default answer is Git. This can include vector, WAV, MPEG, or generated source files. These should often also use LFS for multiple reasons, especially long-term sustainability.
 
-## If all efforts fails ..
+In some cases, files are large and generated but still reviewable in pull/merge requests, and then LFS may not be the best solution. Splitting into a separate repository can be better, with a submodule that tracks the mainline branch (newer Git versions support this). The benefit is that handling large repository size becomes a separate concern, and practices like squashed releases can be used to improve sustainability.
 
-In some cases the situation is more complex than a solution of a mixture of about solution would solve and maybe the problems are in git history and LFS'ing would be wrong going forward - nor can deletion objects be the correct solution. I.e. there is a conflict between the history concerns ( reproduce revisions due to legal reason ) and future concerns of sustainability and both are valid concerns. In such situations a solution is to archive the history on a flat storage ( unoptimized for future concerns ) and then make a total make-over in a "what-ever-it-takes" mode to serve the future, but still preserve the core parts of the code-base that has special history concerns. The old versions might not be directly workable/patchable. It could even be that re-establish a history with special focus of branches/tags. Everything is possible as the archive is still there if "legal" calls. 
+## If all efforts fail
+
+In some cases, the situation is more complex than what a mixed solution can address. Problems may be deeply rooted in Git history, where moving to LFS going forward is not enough, and deleting historical objects may also be unacceptable.
+
+For example, there can be a conflict between historical requirements (reproducing old revisions for legal reasons) and future sustainability requirements. Both concerns are valid. In such cases, one approach is to archive history in flat storage (not optimized for future operations) and then do a complete rebuild in a whatever-it-takes mode for future sustainability, while preserving core codebase parts with strict history requirements.
+
+Older versions may no longer be directly workable/patchable. It may even be necessary to re-establish history with focused branch/tag preservation. This is still feasible as long as the archive remains available for legal or audit needs.
+
+*) Praqma git-artifact repository: https://github.com/Praqma/git-artifact
 
  
