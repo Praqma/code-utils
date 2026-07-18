@@ -151,17 +151,21 @@ def get_dynamic_keys(repos: list[dict]) -> list[str]:
 
 
 def verdict_cell(value: str) -> str:
-    val_lower = value.lower()
-    if val_lower == "n/a" or val_lower == "":
-        cls = "na"
-    elif "must lfs" in val_lower:
-        cls = "must-lfs"
-    elif "could lfs" in val_lower:
-        cls = "could-lfs"
-    elif "no issues" in val_lower:
-        cls = "ok"
+    val_lower = (value or "").strip().lower()
+    if (
+        "too-big" in val_lower
+        or "must lfs" in val_lower
+        or "must-lfs" in val_lower
+    ):
+        cls = "red"
+    elif (
+        "ok" in val_lower
+        or "no issue detected" in val_lower
+        or "no issues" in val_lower
+    ):
+        cls = "green"
     else:
-        cls = "na"
+        cls = "yellow"
     return f'<span class="verdict {cls}">{html.escape(value)}</span>'
 
 
@@ -203,10 +207,9 @@ STYLE = """
     a { color: var(--accent); text-decoration: none; }
     a:hover { text-decoration: underline; }
     .verdict { padding: 3px 8px; border-radius: 999px; border: 1px solid currentColor; font-size: 0.85rem; white-space: nowrap; }
-    .verdict.ok { color: var(--ok); background: rgba(52, 211, 153, 0.12); }
-    .verdict.na { color: #e8e8e8; background: rgba(232, 232, 232, 0.12); }
-    .verdict.could-lfs { color: #fbbf24; background: rgba(251, 191, 36, 0.12); }
-    .verdict.must-lfs { color: #ef4444; background: rgba(239, 68, 68, 0.12); }
+    .verdict.green { color: var(--ok); background: rgba(52, 211, 153, 0.12); }
+    .verdict.yellow { color: #fbbf24; background: rgba(251, 191, 36, 0.12); }
+    .verdict.red { color: #ef4444; background: rgba(239, 68, 68, 0.12); }
     td { white-space: nowrap; }
 """
 
@@ -242,7 +245,7 @@ def build_html(repos: list[dict], base_dir: str, output: str) -> str:
         ]
         for key in dyn_keys:
             value = r["values"].get(key, "n/a") or "n/a"
-            if key == "git_verdict":
+            if "verdict" in key.lower():
                 cells.append(f"<td>{verdict_cell(value)}</td>")
             elif key == "git_size_extensions":
                 short_value = truncate_with_ellipsis(value, 20)
