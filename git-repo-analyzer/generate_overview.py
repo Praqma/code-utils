@@ -82,6 +82,13 @@ def make_href(abs_target: str, out_dir: str) -> str:
 def read_git_sizes(path: str) -> dict[str, str]:
     """Parse a key=value file and return a dict.  Missing or blank values → 'n/a'."""
     values: dict[str, str] = {}
+
+    def unquote(value: str) -> str:
+        # Remove a single layer of matching wrapper quotes around whole values.
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+            return value[1:-1].strip()
+        return value
+
     try:
         with open(path, encoding="utf-8") as fh:
             for raw in fh:
@@ -92,7 +99,7 @@ def read_git_sizes(path: str) -> dict[str, str]:
                 if eq <= 0:
                     continue
                 key = line[:eq].strip()
-                value = line[eq + 1:].strip()
+                value = unquote(line[eq + 1:].strip())
                 if key:
                     values[key] = value if value else "n/a"
     except OSError:

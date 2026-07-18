@@ -2,9 +2,9 @@
 
 set -eu -o pipefail
 
-[[ ${debug:-} == true ]] && set -x
-
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+[[ ${debug:-} == true ]] && set -x
 
 [[ ${repack:-} == "" ]] && repack=true
 echo "repack=$repack"
@@ -89,6 +89,7 @@ if [[ "${1:-}" != "" ]]; then
   printf "Changed working directory to: %s\n" "$(pwd)"
 fi
 echo
+git_repo_dir=$(pwd)
 
 git_dir="$(git rev-parse --git-dir)"
 echo "git_dir=${git_dir}"
@@ -113,7 +114,7 @@ echo "invest_remote_branches=$invest_remote_branches"
 echo
 export pack_dir
 
-echo "Analyzing git in: $(pwd) "
+echo "Analyzing git in: ${git_repo_dir} "
 echo "Saving outfiles in: ${WORKSPACE}"
 echo
 
@@ -154,24 +155,6 @@ file_output_git_sizes="${WORKSPACE}/git_sizes.txt" && rm -rf "${file_output_git_
 git_sizer_file_verbose="${WORKSPACE}/git_sizer_verbose.txt" && rm -f "${git_sizer_file_verbose}"
 git_sizer_file_stderr="${WORKSPACE}/git_sizer_verbose.stderr.txt" && rm -f "${git_sizer_file_stderr}"
 
-git log -1 > /dev/null || {
-  exit_code=$?
-  if [[ $exit_code -ne 128 ]]; then
-    echo "[ERROR] unknown error executing 'git log' in $git_repo: git exited with code $exit_code"
-    exit $exit_code
-  fi
-  echo "[WARNING] likely empty git repo: $git_repo"
-  (
-    echo "git_size_total=0"
-    echo "git_size_objects=0"
-    echo "git_size_pack=0"
-    echo "git_size_lfs=0"
-    echo "git_size_modules=0"
-    echo "git_verdict=empty"
-  ) > "$output_dir/git_sizes.txt"
-  exit 0;
-}
-
 printf "Clean old temp packs(if present): \n"
 for idx in $(find ${pack_dir} -name '.tmp*.pack' -o -name '.tmp*.idx') ; do
  echo "$idx"
@@ -211,6 +194,25 @@ else
   printf "repack == false - skip\n\n"
 fi
 
+git log -1 > /dev/null || {
+  exit_code=$?
+  if [[ $exit_code -ne 128 ]]; then
+    echo "[ERROR] unknown error executing 'git log' in $git_repo_dir: git exited with code $exit_code"
+    exit $exit_code
+  fi
+  echo "[WARNING] likely empty git repo: $git_repo_dir"
+  (
+    echo "git_size_total='0'"
+    echo "git_size_objects='0'"
+    echo "git_size_pack='0'"
+    echo "git_size_lfs='0'"
+    echo "git_size_modules='0'"
+    echo "git_verdict='empty'"
+  ) > "${file_output_git_sizes}"
+  exit 0;
+}
+
+
 if [[ ${skip_sizes:-} == "" ]]; then
   echo "Get git repo size total"   
   git_size_total=$(du -sb "${git_dir}" | cut -f 1)
@@ -218,6 +220,20 @@ if [[ ${skip_sizes:-} == "" ]]; then
   git_size_objects=$(du -sb "${git_dir}/objects" | cut -f 1)
   git_size_pack="0"
   [[ -d "${pack_dir}" ]] && git_size_pack=$(du -sb "${pack_dir}" | cut -f 1)
+
+  echo "Get git modules sizes"
+  git_size_modules="0"
+  
+  if [[ -d "${git_dir}/modules" ]]; then
+    git_size_modules=$(du -sb "${git_dir}/modules" | cut -f 1)
+  else
+    if [[ -f ".gitmodules" ]]; then
+      echo ".gitmodules found - but no modules initialized"
+      git_size_modules="1024000" # 1MB for just to hightlight that there are submodules but not initialized
+    else
+      echo "git modules: no .gitmodules found"
+    fi
+  fi
 
   echo "Get git lfs sizes"
   git_size_lfs="0"
@@ -229,10 +245,6 @@ if [[ ${skip_sizes:-} == "" ]]; then
     echo "No git lfs files or error during git lfs ls-files --all - skip"
     rm -f "${WORKSPACE}/git_lfs_files.txt"
   }
-
-  echo "Get git modules sizes"
-  git_size_modules="0"
-  [[ -d "${git_dir}/modules" ]] && git_size_modules=$(du -sb "${git_dir}/modules" | cut -f 1  )
 else
   echo "git lfs and modules sizes: skipped"
 fi
@@ -245,12 +257,19 @@ bytes_to_megabytes "${git_size_lfs}" git_size_lfs_mega
 bytes_to_megabytes "${git_size_modules}" git_size_modules_mega
 
 cat <<EOF > ${file_output_git_sizes}
-git_size_total=${git_size_total_mega}
-git_size_objects=${git_size_objects_mega}
-git_size_pack=${git_size_pack_mega}
-git_size_lfs=${git_size_lfs_mega}
-git_size_modules=${git_size_modules_mega}
+git_size_total='${git_size_total_mega}'
+git_size_objects='${git_size_objects_mega}'
+git_size_pack='${git_size_pack_mega}'
+git_size_lfs='${git_size_lfs_mega}'
+git_size_modules='${git_size_modules_mega}'
 EOF
+
+git_size_objects_verdict="ok"
+if [[ ${git_size_objects:-} -gt $(( 5 * 1024 * 1024 * 1024 )) ]]; then
+  git_size_objects_verdict="TOO-BIG"
+elif [[ ${git_size_objects:-} -gt $(( 2 * 1024 * 1024 * 1024 )) ]]; then
+  git_size_objects_verdict="big"
+fi
 
 cat ${file_output_git_sizes}
 
@@ -561,19 +580,21 @@ if [[ -s "${file_output_sorted_size_files_final}" ]]; then
   bytes_to_megabytes "${git_size_largest_bytes}" git_size_largest
 fi
 
-git_verdict="n/a"
+git_size_lfs_verdict="n/a"
 if [[ ${git_size_largest_bytes} -gt $((1024*1024*100)) ]]; then
-  git_verdict="Must LFS"
+  git_size_lfs_verdict="Must-LFS"
 elif [[ ${git_size_largest_bytes} -gt $((1024*1024*10)) ]]; then
-  git_verdict="Could LFS"
+  git_size_lfs_verdict="Could-LFS"
 else
-  git_verdict="No issues detected"
+  git_size_lfs_verdict="No-issues-detected"
 fi
 
 cat <<EOF >> ${file_output_git_sizes}
-git_size_largest=${git_size_largest}
-git_size_extensions=${git_size_extensions}
-git_verdict=${git_verdict}
+git_size_largest='${git_size_largest}'
+git_size_extensions='${git_size_extensions}'
+git_size_objects_verdict='${git_size_objects_verdict}'
+git_size_lfs_verdict='${git_size_lfs_verdict}'
+git_verdict='${git_size_objects_verdict}&${git_size_lfs_verdict}'
 EOF
 
 # Enable with: run_git_sizer=true ./git-object-sizes-in-repo-analyzer.sh [repo-path]
@@ -642,12 +663,11 @@ else
   echo "run_git_sizer != true - skip git-sizer"
 fi
 
-
 # Generate HTML tree visualization
 echo "Generating HTML tree visualization..."
 file_output_html="${WORKSPACE}/git_sizes_tree.html" && rm -f "${file_output_html}"
 if command -v python3 &>/dev/null; then
-  python3 "${script_dir}/git-object-sizes-tree-render.py" "${file_output_sorted_size_total_final}" "${file_output_html}" "$(pwd)"
+  python3 "${script_dir}/git-object-sizes-tree-render.py" "${file_output_sorted_size_total_final}" "${file_output_html}" "${git_repo_dir}"
   echo "HTML tree visualization: ${file_output_html}"
 else
   echo "python3 not found - skipping HTML tree generation"
