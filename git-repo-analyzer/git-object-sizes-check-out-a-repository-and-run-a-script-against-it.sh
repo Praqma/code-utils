@@ -22,10 +22,13 @@ git --version || true
 python3 --version || true
 
 function fetch_me {
+  [[ ${repo_fetch:-} == "true" ]] || {
+    echo "INFO: repo_fetch is not set to true, skipping fetch for $git_repo"
+    return 0
+  }
   git \
     -c http.extraHeader="Authorization: Bearer ${BITBUCKET_TOKEN}" \
       -C "$repo_full_dir" fetch origin \
-        --recurse-submodules \
         -apP \
         --force
 }
@@ -39,10 +42,13 @@ while IFS= read -r git_repo; do
   if git -C "$repo_full_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     fetch_me
   else
+    echo "Sparse checkout of repository: $git_repo"
+    rm -rf "$repo_full_dir"
     git \
         -c http.extraHeader="Authorization: Bearer ${BITBUCKET_TOKEN}" \
-         clone --sparse --recurse-submodules "$git_repo" "$repo_full_dir"
-    # get all refs, including tags and branches
-    fetch_me
+         clone \
+          --tags \
+          --sparse \
+          "$git_repo" "$repo_full_dir"
   fi
 done < <(printf '%s\n' "$PROJECT_LIST" | tr ',' '\n')
