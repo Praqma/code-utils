@@ -599,7 +599,7 @@ EOF
 
 # Enable with: run_git_sizer=true ./git-object-sizes-in-repo-analyzer.sh [repo-path]
 if [[ "${run_git_sizer:-true}" == "true" ]]; then
-  echo "Running git-sizer in verbose mode..."
+  echo "Running git-sizer in verbose mode... : set run_git_sizer=false to skip"
   git_sizer_repo_dir="${script_dir}/git-sizer"
   git_sizer_bin_dir="${git_sizer_repo_dir}/bin"
   git_sizer_cmd="${git_sizer_bin_dir}/git-sizer"
