@@ -73,6 +73,25 @@ function bytes_to_megabytes () {
   printf -v "${output_var}" '%s' "${converted}"
 }
 
+function run_verify_pack_all () {
+  local output_file="$1"
+  local idx_file
+  local verified_any="false"
+
+  : > "${output_file}"
+  while IFS= read -r idx_file; do
+    [[ -n "${idx_file}" ]] || continue
+    [[ -f "${idx_file}" ]] || continue
+    if git verify-pack -v "${idx_file}" >> "${output_file}"; then
+      verified_any="true"
+    else
+      echo "WARNING: verify-pack failed for idx: ${idx_file} - skip" >&2
+    fi
+  done < <(find "${pack_dir}" -name '*.idx' -type f | sort)
+
+  [[ "${verified_any}" == "true" ]]
+}
+
 
 if [[ ${debug:-} == true ]]; then
   command -v find
@@ -279,7 +298,7 @@ cat ${file_output_git_sizes}
 
 export pack_file=$(find ${pack_dir} -name '*.idx')
 echo "Run verify-pack to list all objects in idx"
-git verify-pack -v "${pack_file}" > "${file_verify_pack}" || {
+run_verify_pack_all "${file_verify_pack}" || {
   if [[ ${repack:-} != true ]]; then
     echo "ERROR: The verify-pack failed and repack != true - fail"
     exit 1
@@ -291,7 +310,10 @@ git verify-pack -v "${pack_file}" > "${file_verify_pack}" || {
     git gc --prune
   ) || git gc --prune
   export pack_file=$(find ${pack_dir} -name '*.idx')
-  git verify-pack -v "${pack_file}" > "${file_verify_pack}"
+  run_verify_pack_all "${file_verify_pack}" || {
+    echo "ERROR: verify-pack failed for all idx files after repack"
+    exit 1
+  }
 }
 echo "Done"
 
