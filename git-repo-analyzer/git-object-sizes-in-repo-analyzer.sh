@@ -76,20 +76,23 @@ function bytes_to_megabytes () {
 function run_verify_pack_all () {
   local output_file="$1"
   local idx_file
-  local verified_any="false"
+  local verified_failed="false"
 
   : > "${output_file}"
   while IFS= read -r idx_file; do
     [[ -n "${idx_file}" ]] || continue
     [[ -f "${idx_file}" ]] || continue
     if git verify-pack -v "${idx_file}" >> "${output_file}"; then
-      verified_any="true"
+      verified_failed="true"
     else
       echo "WARNING: verify-pack failed for idx: ${idx_file} - skip" >&2
     fi
   done < <(find "${pack_dir}" -name '*.idx' -type f | sort)
 
-  [[ "${verified_any}" == "true" ]]
+  if [[ "${verified_failed}" == "true" ]] ; then
+    echo "ERROR: verify-pack failed for one or more idx files" >&2
+    return 2
+  fi
 }
 
 
@@ -298,25 +301,25 @@ cat ${file_output_git_sizes}
 
 export pack_file=$(find ${pack_dir} -name '*.idx')
 echo "Run verify-pack to list all objects in idx"
+verify_pack_exit_code=0
 run_verify_pack_all "${file_verify_pack}" || {
+  verify_pack_exit_code=$?
   if [[ ${repack:-} != true ]]; then
     echo "ERROR: The verify-pack failed and repack != true - fail"
-    exit 1
+  else
+    echo "try to repack and gc --prune"
+    (
+      git reflog expire --all --expire=now
+      git repack -a -d --depth=250 --window=250 # accept to use old deltas - add "-f" option to not reuse old deltas for large repos it fails often
+      git gc --prune
+    ) || git gc --prune
+    export pack_file=$(find ${pack_dir} -name '*.idx')
+    run_verify_pack_all "${file_verify_pack}" || {
+      echo "ERROR: verify-pack failed for all idx files after repack"
+      verify_pack_exit_code=$?
+    }
   fi
-  echo "try to repack and gc --prune"
-  (
-    git reflog expire --all --expire=now
-    git repack -a -d --depth=250 --window=250 # accept to use old deltas - add "-f" option to not reuse old deltas for large repos it fails often
-    git gc --prune
-  ) || git gc --prune
-  export pack_file=$(find ${pack_dir} -name '*.idx')
-  run_verify_pack_all "${file_verify_pack}" || {
-    echo "ERROR: verify-pack failed for all idx files after repack"
-    exit 1
-  }
 }
-echo "Done"
-
 regex_lstree_list='^([a-f0-9]{40})[[:space:]]+(.*)$'
 declare -A default_blobs_map
 declare -A branches_blobs_map
@@ -725,6 +728,7 @@ fi
 echo
 if [[ $issues_found == true ]] ; then
   echo "Issues found : leave *.tmp for debugging"
+  exit 1
 else
   if [[ ${debug:-} == true ]]; then
     echo "Debugging mode : leave *.tmp files"
@@ -734,3 +738,7 @@ else
   fi
 fi 
 
+[[ ${verify_pack_exit_code:-0} -ne 0 ]] && {
+  echo "WARNING: verify-pack failed with exit code ${verify_pack_exit_code}"
+  exit "${verify_pack_exit_code}"
+}
