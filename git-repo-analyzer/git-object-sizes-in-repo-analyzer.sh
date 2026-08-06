@@ -168,7 +168,11 @@ pack_file=$(find ${pack_dir} -name '*.idx')
   git gc 
   pack_file=$(find ${pack_dir} -name '*.idx')
   [[ ${pack_file} ==  "" ]] && { 
-    echo "No pack file available - do a repack" 
+    if [[ ${repack:-} != true ]]; then
+      echo "ERROR: No pack file available and repack != true - fail"
+      exit 1
+    fi
+    echo "No pack file available - do a repack"
     repack="true"
    }
 }
@@ -276,6 +280,10 @@ cat ${file_output_git_sizes}
 export pack_file=$(find ${pack_dir} -name '*.idx')
 echo "Run verify-pack to list all objects in idx"
 git verify-pack -v "${pack_file}" > "${file_verify_pack}" || {
+  if [[ ${repack:-} != true ]]; then
+    echo "ERROR: The verify-pack failed and repack != true - fail"
+    exit 1
+  fi
   echo "try to repack and gc --prune"
   (
     git reflog expire --all --expire=now
