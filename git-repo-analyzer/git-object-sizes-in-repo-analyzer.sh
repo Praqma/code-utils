@@ -82,19 +82,17 @@ function run_verify_pack_all () {
   while IFS= read -r idx_file; do
     [[ -n "${idx_file}" ]] || continue
     [[ -f "${idx_file}" ]] || continue
-    if git verify-pack -v "${idx_file}" >> "${output_file}"; then
-      verified_failed="true"
-    else
+    if ! git verify-pack -v "${idx_file}" >> "${output_file}"; then
       echo "WARNING: verify-pack failed for idx: ${idx_file} - skip" >&2
+      verified_failed="true"
     fi
   done < <(find "${pack_dir}" -name '*.idx' -type f | sort)
 
   if [[ "${verified_failed}" == "true" ]] ; then
     echo "ERROR: verify-pack failed for one or more idx files" >&2
     return 2
-  fi
+  fi  
 }
-
 
 if [[ ${debug:-} == true ]]; then
   command -v find
