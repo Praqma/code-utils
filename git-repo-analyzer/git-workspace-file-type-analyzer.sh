@@ -162,6 +162,6 @@ sort -k2 -r ${root_folder}/verdict_size.tmp  >> ${root_folder}/verdict_size_sort
 echo "Generate the list of ${root_folder}/verdict_type_sorted.txt"
 sort -r ${root_folder}/verdict_size.tmp      >> ${root_folder}/verdict_type_sorted.txt
 
-rm -rf verdict_size.tmp
+rm -rf ${root_folder}/verdict_size.tmp
 
 
