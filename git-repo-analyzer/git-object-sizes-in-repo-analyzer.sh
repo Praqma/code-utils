@@ -182,6 +182,32 @@ for idx in $(find ${pack_dir} -name '.tmp*.pack' -o -name '.tmp*.idx') ; do
 done
 printf "Done\n\n"
 
+function is_repo_empty () {
+  if [[ $(git rev-list --all --count) -gt 0 ]]; then
+    return 1  # Not empty
+  else
+    return 0  # Empty
+  fi
+}
+
+function is_repo_empty_and_report_n_exit () {
+  if is_repo_empty; then
+    echo "[WARNING] empty git repo: $git_repo_dir"
+    (
+      echo "git_size_total='0'"
+      echo "git_size_objects='0'"
+      echo "git_size_pack='0'"
+      echo "git_size_lfs='0'"
+      echo "git_size_modules='0'"
+      echo "git_verdict='empty'"
+    ) > "${file_output_git_sizes}"
+    exit 0;
+  else
+    echo "git repo is not empty - continue"
+  fi
+}
+
+is_repo_empty_and_report_n_exit
 pack_file=$(find ${pack_dir} -name '*.idx')
 [[ ${pack_file} ==  "" ]] && { 
   echo "No pack file available - do a git gc" 
@@ -217,25 +243,6 @@ if [[ ${repack} == true ]]; then
 else
   printf "repack == false - skip\n\n"
 fi
-
-git log -1 > /dev/null || {
-  exit_code=$?
-  if [[ $exit_code -ne 128 ]]; then
-    echo "[ERROR] unknown error executing 'git log' in $git_repo_dir: git exited with code $exit_code"
-    exit $exit_code
-  fi
-  echo "[WARNING] likely empty git repo: $git_repo_dir"
-  (
-    echo "git_size_total='0'"
-    echo "git_size_objects='0'"
-    echo "git_size_pack='0'"
-    echo "git_size_lfs='0'"
-    echo "git_size_modules='0'"
-    echo "git_verdict='empty'"
-  ) > "${file_output_git_sizes}"
-  exit 0;
-}
-
 
 if [[ ${skip_sizes:-} == "" ]]; then
   echo "Get git repo size total"   
