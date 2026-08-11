@@ -1,5 +1,14 @@
+#!/bin/bash
 
+set -u -o pipefail
+# set -e # not ready for this yet - usage of grep and some git commands
 
+if [[ $WORKSPACE == "" ]]; then 
+	echo "WORKSPACE is not set.. output in current folder: ${PWD}"
+else
+	echo "WORKSPACE is set to: ${WORKSPACE} - output in WORKSPACE folder"
+	cd $WORKSPACE
+fi
 root_folder=`pwd`
 
 if [ "${1}X" == "X" ]; then
@@ -47,7 +56,7 @@ IsFileBinary() {
 
 echo ${PATH}
 pwd
-if [ "${debug}X" == "trueX" ] ; then
+if [ "${debug:-}debug" == "truedebug" ] ; then
   set -x
 fi
 
@@ -83,7 +92,7 @@ for filename in `cat ${root_folder}/files_found.txt` ; do
 	basename=`basename ${filename}`
 	file_size=`du -sk ${filename} | awk -F" " '{print $1}'`
 	fileext=${basename##*.}
-	found_ext=`cat ${root_folder}/binary_extension.txt ${root_folder}/ascii_extension.txt | sort -u | grep ^${fileext}$` 
+	found_ext=`cat ${root_folder}/binary_extension.txt ${root_folder}/ascii_extension.txt | sort -u | grep ^${fileext}$ || echo ""` 
 	verdict=""
 
 	echo "${filename}: "
@@ -152,5 +161,7 @@ sort -k2 -r ${root_folder}/verdict_size.tmp  >> ${root_folder}/verdict_size_sort
 
 echo "Generate the list of ${root_folder}/verdict_type_sorted.txt"
 sort -r ${root_folder}/verdict_size.tmp      >> ${root_folder}/verdict_type_sorted.txt
+
+rm -rf verdict_size.tmp
 
 
