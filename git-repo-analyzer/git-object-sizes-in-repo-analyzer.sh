@@ -168,6 +168,7 @@ file_output_sorted_size_total_revisions="${WORKSPACE}/bigtosmall_sorted_size_tot
 file_output_sorted_size_total_final="${WORKSPACE}/bigtosmall_sorted_size_total_final.txt" && rm -rf "${file_output_sorted_size_total_final}"
 file_output_sorted_size_no_extension="${WORKSPACE}/bigtosmall_sorted_size_no_extension.txt" && rm -rf "${file_output_sorted_size_no_extension}"
 file_output_sorted_size_extensions="${WORKSPACE}/bigtosmall_sorted_size_extensions.txt" && rm -rf "${file_output_sorted_size_extensions}"
+file_output_largest_per_extension="${WORKSPACE}/bigtosmall_largest_per_extension.txt" && rm -rf "${file_output_largest_per_extension}"
 file_output_git_size_extensions="${WORKSPACE}/git_size_extensions.txt" && rm -rf "${file_output_git_size_extensions}"
 
 file_output_git_sizes="${WORKSPACE}/git_sizes.txt" && rm -rf "${file_output_git_sizes}"
@@ -601,6 +602,36 @@ awk 'NR > 0 {
   printf "%s=%s (%s)\n", ext, size_m, count
 }' "${file_output_sorted_size_extensions}" > "${file_output_git_size_extensions}"
 
+# Largest single file per extension from the pre-sorted file-level report.
+awk 'BEGIN { OFS=" " }
+{
+  line = $0
+  size = $1
+
+  sub(/^[^ ]+ +/, "", line)
+  if (line ~ /^[HB] /) {
+    line = substr(line, 3)
+  }
+
+  path = line
+  n = split(path, parts, "/")
+  base = parts[n]
+
+  ext = "[no_ext]"
+  if (base ~ /\./) {
+    ext = base
+    sub(/^.*\./, "", ext)
+    if (ext == "") ext = "[no_ext]"
+  }
+
+  ext = tolower(ext)
+  if (!(ext in seen)) {
+    seen[ext] = 1
+    printf "%s %s %s\n", size, ext, path
+  }
+}' "${file_output_sorted_size_files_final}" > "${file_output_largest_per_extension}"
+echo "Largest file per extension: ${file_output_largest_per_extension}"
+
 git_size_extensions=$(awk 'NR > 0 {
   ext = $3
   if (out == "") out = ext
@@ -617,6 +648,8 @@ if [[ -s "${file_output_sorted_size_files_final}" ]]; then
   git_size_largest_bytes=$(head -n 1 "${file_output_sorted_size_files_final}" | cut -f 1 -d ' ')
   bytes_to_megabytes "${git_size_largest_bytes}" git_size_largest
 fi
+
+
 
 git_size_lfs_verdict="n/a"
 if [[ ${git_size_largest_bytes} -gt $((1024*1024*100)) ]]; then
@@ -742,6 +775,8 @@ else
     rm -rf "${WORKSPACE}"/*.tmp
   fi
 fi 
+
+
 
 [[ ${verify_pack_exit_code:-0} -ne 0 ]] && {
   echo "WARNING: verify-pack failed with exit code ${verify_pack_exit_code}"
