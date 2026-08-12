@@ -158,19 +158,44 @@ def collect_git_logs(repo_path, paths):
     return logs
 
 
-def render_html(repo_name, tree_json, logs_json):
+def load_extension_verdicts(input_file):
+    ext_file = os.path.join(os.path.dirname(os.path.abspath(input_file)), 'git_size_extensions.txt')
+    verdicts = {}
+    if not os.path.isfile(ext_file):
+        return verdicts
+
+    # Expected line format: "ext=size (count) verdict"
+    line_re = re.compile(r'^(.*?)=.*\(\s*\d+\s*\)\s+(\S+)\s*$')
+    with open(ext_file) as f:
+        for raw in f:
+            line = raw.strip()
+            if not line:
+                continue
+            m = line_re.match(line)
+            if not m:
+                continue
+            ext = m.group(1).strip().lower()
+            verdict = m.group(2).strip()
+            if ext == '[no-ext]':
+                ext = '[no_ext]'
+            verdicts[ext] = verdict
+    return verdicts
+
+
+def render_html(repo_name, tree_json, logs_json, ext_verdicts_json):
     html_template = r'''<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="UTF-8"><title>Git Object Sizes - __REPO__</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Segoe UI',Consolas,monospace;background:radial-gradient(circle at top left,#161a2d 0%,#0f1220 50%);color:#e5e9ff;margin:0;height:100vh;overflow:hidden}
-#layout{display:grid;grid-template-columns:330px 1fr;height:100vh}
+#layout{display:grid;grid-template-columns:400px 1fr;height:100vh}
 #sidebar{border-right:1px solid #39415f;background:#1a1f33;padding:16px;position:sticky;top:0;height:100vh;overflow:auto}
 #main{padding:16px;display:grid;grid-template-rows:auto 1fr;gap:10px;height:100vh;overflow:hidden}
 #main-top{display:grid;gap:6px}
 h1{font-size:1.8em;color:#e5e9ff;margin-bottom:6px}
 #summary{font-size:1em;color:#aab2d8;margin-bottom:0}
+#summary-hint{font-size:.84em;color:#8e97bc;background:#1f243b;border:1px solid #39415f;border-radius:8px;padding:6px 10px;display:inline-block;width:fit-content}
 #sidebar-title{font-size:1.3em;margin-bottom:6px}
 #sidebar-subtitle{font-size:.9em;color:#aab2d8;margin-bottom:12px}
 #controls{display:grid;gap:10px}
@@ -191,40 +216,50 @@ h1{font-size:1.8em;color:#e5e9ff;margin-bottom:6px}
 .type-inline-dot-b{background:#fab387}
 .type-inline-dot-hist{background:#ef4444}
 .type-inline-dot-mixed{background:#c9cedf}
-#ext-panel{border:1px solid #39415f;background:#1f243b;border-radius:10px;padding:10px;display:grid;gap:8px}
+#ext-panel{border:1px solid #39415f;background:#1f243b;border-radius:10px;padding:10px;display:grid;grid-template-rows:auto auto minmax(0,1fr) auto auto;gap:8px;min-height:0}
 #ext-summary{font-size:.84em;color:#aab2d8}
-#ext-table-wrap{max-height:260px;overflow:auto;border:1px solid #39415f;border-radius:8px}
-#ext-table{width:100%;border-collapse:collapse;font-size:.84em}
-#ext-table th{position:sticky;top:0;background:#232944;color:#c9cedf;text-align:left;padding:6px 8px;border-bottom:1px solid #39415f}
-#ext-table td{padding:6px 8px;border-bottom:1px solid #2a2f48;color:#dfe4ff}
-#ext-table td:last-child{text-align:right;color:#aab2d8}
-#ext-table tr:last-child td{border-bottom:none}
+#ext-table-head-wrap{border:1px solid #39415f;border-radius:8px 8px 0 0;overflow:hidden}
+#ext-table-wrap{max-height:330px;min-height:0;overflow-y:auto;overflow-x:hidden;border:1px solid #39415f;border-top:none;border-radius:0 0 8px 8px;scrollbar-gutter:stable}
+.ext-table{width:100%;border-collapse:collapse;font-size:.84em;table-layout:fixed}
+.ext-table th,.ext-table td{min-width:0;overflow:hidden;text-overflow:ellipsis;padding:6px 8px}
+.ext-table th{background:#232944;color:#c9cedf;text-align:left;border-bottom:1px solid #39415f;white-space:normal;line-height:1.15}
+.ext-table td{border-bottom:1px solid #2a2f48;color:#dfe4ff;white-space:nowrap}
+.ext-table td:nth-child(2),.ext-table td:nth-child(3){text-align:right;color:#aab2d8}
+.ext-table td:nth-child(4){font-weight:600;color:#c9cedf}
+.ext-table tr:last-child td{border-bottom:none}
+.ext-table th:nth-child(1),.ext-table td:nth-child(1){width:34%}
+.ext-table th:nth-child(2),.ext-table td:nth-child(2){width:24%}
+.ext-table th:nth-child(3),.ext-table td:nth-child(3){width:18%}
+.ext-table th:nth-child(4),.ext-table td:nth-child(4){width:24%}
 #ext-empty{font-size:.84em;color:#8e97bc;padding:2px 0}
+.ext-legend{font-size:.8em;color:#9aa4cd;line-height:1.3}
 .ctx-hint{font-size:.82em;color:#8e97bc}
 button{background:#232944;color:#e5e9ff;border:1px solid #39415f;padding:8px 10px;border-radius:8px;cursor:pointer;font-size:.95em}
 button:hover{background:#45475a}
-#tree-panel{display:grid;grid-template-rows:auto 1fr;min-height:0;border:1px solid #39415f;border-radius:10px;overflow:hidden;background:#151a2d}
-#tree{font-size:.94em;overflow:auto;min-height:0}
-.hdr{display:flex;gap:6px;padding:6px 8px;font-size:.9em;color:#aab2d8;border-bottom:1px solid #39415f;background:#1a1f33;user-select:none}
-.hdr .h-tog{width:16px;flex-shrink:0}
-.hdr .h-ico{width:18px;flex-shrink:0}
-.hdr .h-name{flex:1;min-width:0}
-.hdr .h-tag{width:72px;flex-shrink:0;text-align:center}
-.hdr .h-bar{width:450px;flex-shrink:0;text-align:center}
-.hdr .h-sz{width:82px;flex-shrink:0;text-align:right}
-.hdr .h-cnt{width:56px;flex-shrink:0;text-align:right}
+#tree-panel{display:grid;grid-template-rows:auto 1fr;min-height:0;border:1px solid #39415f;border-radius:10px;overflow-y:auto;overflow-x:hidden;background:#151a2d}
+#tree{font-size:.94em;overflow-x:hidden;overflow-y:visible;min-height:0}
+.hdr,.row{display:grid;grid-template-columns:minmax(0,1fr) 40px minmax(24px,.8fr) minmax(13px,.225fr) minmax(16px,.25fr);column-gap:5px;align-items:center}
+.hdr{padding:6px 8px;font-size:.9em;color:#aab2d8;border-bottom:1px solid #39415f;background:#1a1f33;user-select:none}
+.hdr .h-name{min-width:0}
+.hdr .h-tag{text-align:center}
+.hdr .h-bar{text-align:center}
+.hdr .h-sz{text-align:right}
+.hdr .h-cnt{text-align:right}
+.hdr>div,.row>div{min-width:0}
 .node{margin:1px 0;content-visibility:auto;contain-intrinsic-block-size:26px}
-.row{display:flex;align-items:center;gap:6px;padding:2px 6px;border-radius:4px;cursor:default}
+.row{padding:2px 6px;border-radius:4px;cursor:default}
 .row.clickable{cursor:pointer}
 .row:hover{background:#2a2a3e}
-.tog{width:16px;flex-shrink:0;font-size:.85em;color:#585b70;text-align:center}
-.ico{flex-shrink:0;font-size:1em;width:18px;text-align:center}
-.nm{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.tag{width:72px;flex-shrink:0;text-align:center;color:#aab2d8;font-size:.82em}
-.bar-w{width:450px;flex-shrink:0;background:#40476b;border-radius:3px;height:9px;overflow:hidden}
+.lead{display:grid;grid-template-columns:14px 16px minmax(0,1fr);column-gap:4px;align-items:center;min-width:0;padding-left:calc(var(--depth, 0) * 10px)}
+.tog{width:14px;font-size:.8em;color:#585b70;text-align:center}
+.ico{font-size:.95em;width:16px;text-align:center}
+.nm{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tag{text-align:center;color:#aab2d8;font-size:.82em}
+.bar-w{width:100%;background:#40476b;border-radius:3px;height:9px;overflow:hidden}
 .bar{height:9px;border-radius:3px;min-width:1px}
-.sz{width:82px;flex-shrink:0;text-align:right;color:#a6adc8;font-size:.92em}
-.cnt{width:56px;flex-shrink:0;text-align:right;color:#585b70;font-size:.88em}
+.sz{text-align:right;color:#a6adc8;font-size:.92em}
+.cnt{text-align:right;color:#585b70;font-size:.88em}
+.tag,.sz,.cnt{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .sz-dir{color:#c9cedf}
 .sz-H{color:#89b4fa}
 .sz-B{color:#fab387}
@@ -233,7 +268,7 @@ button:hover{background:#45475a}
 .cnt-H{color:#89b4fa}
 .cnt-B{color:#fab387}
 .cnt-hist{color:#ef4444}
-.children{padding-left:18px;border-left:1px solid #2a2a3e;margin-left:14px}
+.children{display:block}
 .collapsed>.children{display:none}
 .bar-dir{background:#c9cedf}
 .bar-H{background:#89b4fa}
@@ -257,6 +292,14 @@ button:hover{background:#45475a}
   #sidebar{position:static;height:auto;border-right:none;border-bottom:1px solid #39415f}
   #main{height:auto;overflow:visible}
   #tree-panel{min-height:420px}
+  .ext-table th:nth-child(1),.ext-table td:nth-child(1){width:36%}
+  .ext-table th:nth-child(2),.ext-table td:nth-child(2){width:22%}
+  .ext-table th:nth-child(3),.ext-table td:nth-child(3){width:16%}
+  .ext-table th:nth-child(4),.ext-table td:nth-child(4){width:26%}
+}
+@media (max-width:1280px){
+  .hdr,.row{grid-template-columns:minmax(0,1fr) 34px minmax(18px,.9fr) minmax(10px,.2fr) minmax(12px,.2fr)}
+  .lead{padding-left:calc(var(--depth, 0) * 7px)}
 }
 </style>
 </head>
@@ -286,15 +329,21 @@ button:hover{background:#45475a}
       <div id="ext-panel">
         <div class="section-title">Extension Size Breakdown</div>
         <div id="ext-summary"></div>
-        <div class="ctx-hint">Right-click a file row to view git history output.</div>
-        <div id="ext-table-wrap">
-          <table id="ext-table">
+        <div class="ext-legend">Legend: <strong>gA/gB</strong> = git diff says text/binary, <strong>fA/fB/fE</strong> = file(1) says text/binary/empty.</div>
+        <div id="ext-table-head-wrap">
+          <table class="ext-table" aria-hidden="true">
             <thead>
               <tr>
                 <th>Extension</th>
                 <th>Total Size</th>
+                <th>Count</th>
+                <th>Verdict</th>
               </tr>
             </thead>
+          </table>
+        </div>
+        <div id="ext-table-wrap">
+          <table class="ext-table" id="ext-table">
             <tbody id="ext-table-body"></tbody>
           </table>
         </div>
@@ -307,13 +356,12 @@ button:hover{background:#45475a}
     <div id="main-top">
       <h1>Git Object Sizes &mdash; __REPO__</h1>
       <div id="summary"></div>
+      <div id="summary-hint">Right-click a file row to view git history output. Pack/Idx: I = direct-packed blob, P = revision/delta-packed blob.</div>
     </div>
     <div id="tree-panel">
       <div class="hdr">
-        <div class="h-tog"></div>
-        <div class="h-ico"></div>
         <div class="h-name">Name</div>
-        <div class="h-tag">Pack/Idx</div>
+        <div class="h-tag" title="I = direct-packed object total, P = revision/delta-packed object total">Pack/Idx</div>
         <div class="h-bar">Relative Size</div>
         <div class="h-sz">Total Size</div>
         <div class="h-cnt">Revisions</div>
@@ -335,6 +383,7 @@ button:hover{background:#45475a}
 <script>
 const DATA = __DATA__;
 const FILE_LOGS = __LOGS__;
+const EXT_VERDICTS = __EXT_VERDICTS__;
 const total = DATA.s;
 let pathRegexText = '';
 let pathRegex = null;
@@ -421,16 +470,23 @@ function fileExtFromPath(path) {
   const rawName = (path || '').split('/').pop() || '';
   const name = rawName.replace(/\s+\(\s*[IP]\s*\)\s*$/i, '');
   const dot = name.lastIndexOf('.');
-  if (dot <= 0 || dot === name.length - 1) return '[no-ext]';
+  if (dot <= 0 || dot === name.length - 1) return '[no_ext]';
   return name.slice(dot + 1).toLowerCase();
+}
+
+function normalizeExtKey(ext) {
+  const key = (ext || '').toLowerCase();
+  if (key === '[no-ext]') return '[no_ext]';
+  return key;
 }
 
 function collectExtensionStats(node, stats) {
   if (!node) return;
   if (!node.d) {
-    const ext = fileExtFromPath(node.fp || node.n);
-    if (!stats[ext]) stats[ext] = 0;
-    stats[ext] += (node.s || 0);
+    const ext = normalizeExtKey(fileExtFromPath(node.fp || node.n));
+    if (!stats[ext]) stats[ext] = { size: 0, count: 0 };
+    stats[ext].size += (node.s || 0);
+    stats[ext].count += 1;
     return;
   }
   for (const c of (node.ch || [])) collectExtensionStats(c, stats);
@@ -440,7 +496,12 @@ function renderExtensionTable(filteredChildren) {
   const stats = {};
   for (const c of filteredChildren) collectExtensionStats(c, stats);
 
-  const rows = Object.entries(stats).sort((a, b) => b[1] - a[1]);
+  const rows = Object.entries(stats).map(([ext, values]) => ({
+    ext,
+    size: values.size,
+    count: values.count,
+    verdict: EXT_VERDICTS[normalizeExtKey(ext)] || 'n/a'
+  })).sort((a, b) => b.size - a.size);
   const body = document.getElementById('ext-table-body');
   const summary = document.getElementById('ext-summary');
   const empty = document.getElementById('ext-empty');
@@ -458,17 +519,23 @@ function renderExtensionTable(filteredChildren) {
   wrap.style.display = 'block';
 
   let total = 0;
-  for (const item of rows) total += item[1];
+  for (const item of rows) total += item.size;
   summary.textContent = rows.length + ' extension(s), total ' + fmtSz(total);
 
   for (const item of rows) {
     const tr = document.createElement('tr');
     const tdExt = document.createElement('td');
     const tdSize = document.createElement('td');
-    tdExt.textContent = item[0];
-    tdSize.textContent = fmtSz(item[1]);
+    const tdCount = document.createElement('td');
+    const tdVerdict = document.createElement('td');
+    tdExt.textContent = item.ext;
+    tdSize.textContent = fmtSz(item.size);
+    tdCount.textContent = String(item.count);
+    tdVerdict.textContent = item.verdict;
     tr.appendChild(tdExt);
     tr.appendChild(tdSize);
+    tr.appendChild(tdCount);
+    tr.appendChild(tdVerdict);
     body.appendChild(tr);
   }
 }
@@ -528,7 +595,11 @@ function buildNode(node, depth) {
 
   const row = document.createElement('div');
   row.className = 'row' + (hasKids ? ' clickable' : '');
+  row.style.setProperty('--depth', depth);
   const historicalLeaf = isHistoricalLeaf(node);
+
+  const lead = document.createElement('div');
+  lead.className = 'lead';
 
   const tog = document.createElement('div');
   tog.className = 'tog';
@@ -562,9 +633,10 @@ function buildNode(node, depth) {
   cnt.className = 'cnt cnt-' + tone;
   cnt.textContent = !isDir && node.c > 1 ? String(node.c) : '';
 
-  row.appendChild(tog);
-  row.appendChild(ico);
-  row.appendChild(nm);
+  lead.appendChild(tog);
+  lead.appendChild(ico);
+  lead.appendChild(nm);
+  row.appendChild(lead);
   row.appendChild(tag);
   row.appendChild(barW);
   row.appendChild(sz);
@@ -839,7 +911,7 @@ function scheduleRender(debounceMs) {
 </body>
 </html>'''
 
-    return html_template.replace('__REPO__', repo_name).replace('__DATA__', tree_json).replace('__LOGS__', logs_json)
+    return html_template.replace('__REPO__', repo_name).replace('__DATA__', tree_json).replace('__LOGS__', logs_json).replace('__EXT_VERDICTS__', ext_verdicts_json)
 
 
 def main():
@@ -863,8 +935,10 @@ def main():
     if not isinstance(logs, dict):
       logs = {}
     logs_json = json.dumps(logs)
+    ext_verdicts = load_extension_verdicts(input_file)
+    ext_verdicts_json = json.dumps(ext_verdicts)
     repo_name = os.path.basename(os.path.abspath(os.path.dirname(input_file)))
-    html = render_html(repo_name, tree_json, logs_json)
+    html = render_html(repo_name, tree_json, logs_json, ext_verdicts_json)
 
     with open(output_file, 'w') as f:
         f.write(html)

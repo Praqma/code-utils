@@ -2,3 +2,4 @@
 *.tmp
 results/
 git-sizer/
+__pycache__/

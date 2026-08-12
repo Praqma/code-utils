@@ -150,6 +150,8 @@ file_tmp_bigobjects="${WORKSPACE}/bigobjects.tmp" && rm -f "${file_tmp_bigobject
 file_tmp_bigobjects_revisions="${WORKSPACE}/bigobjects_revisions.tmp" && rm -f "${file_tmp_bigobjects_revisions}"
 
 file_tmp_bigtosmall_join="${WORKSPACE}/bigobjects_join.tmp" && rm -f "${file_tmp_bigtosmall_join}"
+file_tmp_bigtosmall_join_revisions="${WORKSPACE}/bigtosmall_revisions_join.tmp" && rm -f "${file_tmp_bigtosmall_join_revisions}"
+
 
 file_tmp_bigtosmall_join_total="${WORKSPACE}/bigobjects_join_total.tmp" && rm -f "${file_tmp_bigtosmall_join_total}" && touch "${file_tmp_bigtosmall_join_total}"
 file_tmp_bigtosmall_join_total_revisions="${WORKSPACE}/bigobjects_join_total_revisions.tmp" && rm -f "${file_tmp_bigtosmall_join_total_revisions}" && touch "${file_tmp_bigtosmall_join_total_revisions}"
@@ -166,9 +168,9 @@ file_output_branch_leaves_tagged="${WORKSPACE}/branches_leaves_tagged.txt" && rm
 file_output_sorted_size_total="${WORKSPACE}/bigtosmall_sorted_size_total.txt" && rm -rf "${file_output_sorted_size_total}"
 file_output_sorted_size_total_revisions="${WORKSPACE}/bigtosmall_sorted_size_total_revisions.txt" && rm -rf "${file_output_sorted_size_total_revisions}"
 file_output_sorted_size_total_final="${WORKSPACE}/bigtosmall_sorted_size_total_final.txt" && rm -rf "${file_output_sorted_size_total_final}"
-file_output_sorted_size_no_extension="${WORKSPACE}/bigtosmall_sorted_size_no_extension.txt" && rm -rf "${file_output_sorted_size_no_extension}"
 file_output_sorted_size_extensions="${WORKSPACE}/bigtosmall_sorted_size_extensions.txt" && rm -rf "${file_output_sorted_size_extensions}"
 file_output_largest_per_extension="${WORKSPACE}/bigtosmall_largest_per_extension.txt" && rm -rf "${file_output_largest_per_extension}"
+file_output_largest_no_extension="${WORKSPACE}/bigtosmall_largest_no_extension.txt" && rm -rf "${file_output_largest_no_extension}"
 file_output_git_size_extensions="${WORKSPACE}/git_size_extensions.txt" && rm -rf "${file_output_git_size_extensions}"
 
 file_output_git_sizes="${WORKSPACE}/git_sizes.txt" && rm -rf "${file_output_git_sizes}"
@@ -223,6 +225,34 @@ pack_file=$(find ${pack_dir} -name '*.idx')
     repack="true"
    }
 }
+
+IsGitBinaryBlob() {
+  mktmp=$(mktemp -p /tmp)
+	trap "rm -f ${mktmp}" EXIT
+  
+  p=$(printf '%s\t-\t' -)
+  git cat-file -p $1  > ${mktmp}
+  t=$(git diff --no-index --numstat /dev/null "${mktmp}")
+  case "$t" in 
+      "$p"*) 
+          return 0 
+          ;; 
+  esac 
+  return 1
+}
+
+IsFileBinaryBlob() {
+	mime_type=$(git cat-file -p "$1" | file - |  awk -F": " '{print $NF}')
+
+	if [ "${mime_type}" == "empty" ] ; then
+		return 2
+	fi
+	if [[ ${mime_type} != *" text"* ]] ; then
+		return 0
+	fi
+	return 1
+}
+
 
 if [[ ${repack} == true ]]; then
   echo "git repo and object sizes before repack:"
@@ -479,8 +509,8 @@ touch "${file_output_sorted_size_files_revisions}"
 echo "Investigate blobs that are packed in revisions in idx file: ${pack_file}"
 if [[ ! $(grep -E "^[a-f0-9]{40}[[:space:]]blob[[:space:]]+[0-9]+[[:space:]][0-9]+[[:space:]][0-9]+[[:space:]][0-9]+[[:space:]][a-f0-9]{40}$" "${file_verify_pack}" | awk -F" " '{print $1,$2,$3,$4,$5}' > "${file_tmp_bigobjects_revisions}") ]]; then
   printf "Amount of objects: %s\n" $(wc -l < "${file_tmp_bigobjects_revisions}")
-  join <(sort "${file_tmp_bigobjects_revisions}") <(sort "${file_tmp_allfileshas}") | sort -k 3 -n -r | cut -f 1,3,6- -d ' '  > "${WORKSPACE}/bigtosmall_revisions_join.tmp"
-  amount_total_unique=$(awk '{ $1=""; $2=""; sub(/^  */, "", $0); if (!seen[$0]++) count++ } END { print count+0 }' "${WORKSPACE}/bigtosmall_revisions_join.tmp")
+  join <(sort "${file_tmp_bigobjects_revisions}") <(sort "${file_tmp_allfileshas}") | sort -k 3 -n -r | cut -f 1,3,6- -d ' '  > "${file_tmp_bigtosmall_join_revisions}"
+  amount_total_unique=$(awk '{ $1=""; $2=""; sub(/^  */, "", $0); if (!seen[$0]++) count++ } END { print count+0 }' "${file_tmp_bigtosmall_join_revisions}")
   printf "Amount of unique <path>/<file>: %s\n" "${amount_total_unique}"
 else
   printf "Amount of objects: 0 - skip\n"
@@ -543,23 +573,73 @@ awk -v default_map="${file_tmp_default_blobs_map}" \
         path_file = order[i]
         printf "%s %s %s %s ( P )\n", total_size[path_file], total_prefix[path_file], total_count[path_file], path_file >> totals_out
       }
-    }' "${WORKSPACE}/bigtosmall_revisions_join.tmp"
+    }' "${file_tmp_bigtosmall_join_revisions}"
 /usr/bin/sort -u -h -r "${file_tmp_bigtosmall_join_total_revisions}" > "${file_output_sorted_size_total_revisions}"
 printf "\n\n"
 
 cat ${file_output_sorted_size_total_revisions} ${file_output_sorted_size_total} | sort -k 1 -h -r > "${file_output_sorted_size_total_final}"
 cat ${file_output_sorted_size_files_revisions} ${file_output_sorted_size_files} | sort -k 1 -h -r > "${file_output_sorted_size_files_final}"
 
-# Collect entries whose basename has no extension from the final totals file.
-awk '{
-  line = $0
-  path = $0
-  sub(/^[^ ]+ [^ ]+ [^ ]+ /, "", path)
-  sub(/ \( [IP] \)$/, "", path)
-  n = split(path, parts, "/")
-  base = parts[n]
-  if (base !~ /\./) print line
-}' "${file_output_sorted_size_total_final}" > "${file_output_sorted_size_no_extension}"
+# Largest single file per extension from the pre-sorted file-level report.
+# Input rows are either: "<size> <path>" or "<size> <H|B> <path>".
+declare -A ext_seen
+largest_no_ext_line=""
+: > "${file_output_largest_per_extension}"
+while IFS= read -r line; do
+  [[ -n "${line}" ]] || continue
+
+  size="${line%% *}"
+  rest="${line#"${size}"}"
+  rest="${rest#"${rest%%[![:space:]]*}"}"
+
+  marker="${rest%% *}"
+  if [[ "${marker}" == "H" || "${marker}" == "B" ]]; then
+    path="${rest#?}"
+    path="${path#"${path%%[![:space:]]*}"}"
+  else
+    path="${rest}"
+  fi
+
+  base="${path##*/}"
+  ext="[no_ext]"
+  if [[ "${base}" == *.* ]]; then
+    ext="${base##*.}"
+    [[ -n "${ext}" ]] || ext="[no_ext]"
+  fi
+  ext="${ext,,}"
+
+  if [[ -z "${ext_seen[${ext}]+x}" ]]; then
+    ext_seen["${ext}"]=1
+
+    blob_sha1=$(grep -F " ${size} ${path}" \
+                    "${file_tmp_bigtosmall_join}" \
+                    "${file_tmp_bigtosmall_join_revisions}" \
+                  | cut -f 1 -d " ")
+
+    [[ -z "${blob_sha1}" ]] && {
+      echo "ERROR: Could not find blob SHA1 for size=${size} path=${path}" >&2
+      exit 1
+    }
+
+    if IsGitBinaryBlob "$blob_sha1"; then
+        verdict="gB"
+    else
+        verdict="gA"
+    fi
+
+    result=0  
+    IsFileBinaryBlob "$blob_sha1" || result=$?
+    if [ "$result" -eq "0" ] ; then
+      verdict="${verdict}fB"
+    elif [ "$result" -eq "2" ] ; then
+      verdict="${verdict}fE"
+    else
+      verdict="${verdict}fA"
+    fi
+    printf "%s %s %s %s\n" "${size}" "${ext}" "${verdict}" "${path}" >> "${file_output_largest_per_extension}"
+  fi
+done < "${file_output_sorted_size_files_final}"
+echo "Largest file per extension: ${file_output_largest_per_extension}"
 
 # Aggregate total size by file extension from the final totals report.
 awk 'BEGIN { OFS=" " }
@@ -592,45 +672,21 @@ END {
   }
 }' "${file_output_sorted_size_total_final}" | sort -k 1 -n -r > "${file_output_sorted_size_extensions}"
 
-awk 'NR > 0 {
+awk 'NR == FNR {
+  ext_verdict[$2] = $3
+  next
+}
+NR > 0 {
   bytes = $1
   count = $2
   ext = $3
   mb = bytes / 1000000
   if (mb == int(mb)) size_m = sprintf("%.0fM", mb)
   else size_m = sprintf("%.1fM", mb)
-  printf "%s=%s (%s)\n", ext, size_m, count
-}' "${file_output_sorted_size_extensions}" > "${file_output_git_size_extensions}"
+  verdict = (ext in ext_verdict) ? ext_verdict[ext] : "n/a"
+  printf "%s=%s (%s) %s\n", ext, size_m, count, verdict
+}' "${file_output_largest_per_extension}" "${file_output_sorted_size_extensions}" > "${file_output_git_size_extensions}"
 
-# Largest single file per extension from the pre-sorted file-level report.
-awk 'BEGIN { OFS=" " }
-{
-  line = $0
-  size = $1
-
-  sub(/^[^ ]+ +/, "", line)
-  if (line ~ /^[HB] /) {
-    line = substr(line, 3)
-  }
-
-  path = line
-  n = split(path, parts, "/")
-  base = parts[n]
-
-  ext = "[no_ext]"
-  if (base ~ /\./) {
-    ext = base
-    sub(/^.*\./, "", ext)
-    if (ext == "") ext = "[no_ext]"
-  }
-
-  ext = tolower(ext)
-  if (!(ext in seen)) {
-    seen[ext] = 1
-    printf "%s %s %s\n", size, ext, path
-  }
-}' "${file_output_sorted_size_files_final}" > "${file_output_largest_per_extension}"
-echo "Largest file per extension: ${file_output_largest_per_extension}"
 
 git_size_extensions=$(awk 'NR > 0 {
   ext = $3
@@ -772,7 +828,7 @@ else
     echo "Debugging mode : leave *.tmp files"
   else
     echo "Removing *.tmp files"
-    rm -rf "${WORKSPACE}"/*.tmp
+    #rm -rf "${WORKSPACE}"/*.tmp
   fi
 fi 
 
