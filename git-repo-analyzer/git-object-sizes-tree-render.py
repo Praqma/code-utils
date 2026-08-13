@@ -329,7 +329,11 @@ button:hover{background:#45475a}
       <div id="ext-panel">
         <div class="section-title">Extension Size Breakdown</div>
         <div id="ext-summary"></div>
-        <div class="ext-legend">Legend: <strong>gA/gB</strong> = git diff says text/binary, <strong>fA/fB/fE</strong> = file(1) says text/binary/empty.</div>
+        <div class="ext-legend">
+          <strong>nA/nB</strong> = 8kb NUL char detection for binary<br>
+          <strong>gA/gB</strong> = git diff says text/binary<br>
+          <strong>fA/fB/fE</strong> = <em>file</em> says text/binary/empty.
+        </div>
         <div id="ext-table-head-wrap">
           <table class="ext-table" aria-hidden="true">
             <thead>

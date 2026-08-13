@@ -4,10 +4,26 @@ set -eu -o pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-[[ ${debug:-} == true ]] && set -x
+[[ ${debug:-} == true ]] && { 
+  set -x
+  keep_tmp_files=true
+}
 
 [[ ${repack:-} == "" ]] && repack=true
 echo "repack=$repack"
+
+# Select git-side binary detection mode:
+# - "8kb"     : fast heuristic (NUL in first 8KB)
+# - "gitdiff" : original git diff --no-index --numstat check
+git_binary_mode="${GIT_BINARY_MODE:-${git_binary_mode:-gitdiff}}"
+case "${git_binary_mode}" in
+  8kb|gitdiff) ;;
+  *)
+    echo "WARNING: Unknown GIT_BINARY_MODE='${git_binary_mode}', valid values: 8kb|gitdiff. Fallback to 'gitdiff'."
+    git_binary_mode="gitdiff"
+    ;;
+esac
+echo "Git binary detection mode: ${git_binary_mode} . set git_binary_mode=gitdiff to use git diff --no-index --numstat check - slower but more accurate"
 
 
 [[ -t 0 ]] && interactive=true || interactive=false
@@ -179,9 +195,9 @@ git_sizer_file_verbose="${WORKSPACE}/git_sizer_verbose.txt" && rm -f "${git_size
 git_sizer_file_stderr="${WORKSPACE}/git_sizer_verbose.stderr.txt" && rm -f "${git_sizer_file_stderr}"
 
 printf "Clean old temp packs(if present): \n"
-for idx in $(find ${pack_dir} -name '.tmp*.pack' -o -name '.tmp*.idx') ; do
+for idx in $(find "${pack_dir}" -name '.tmp*.pack' -o -name '.tmp*.idx') ; do
  echo "$idx"
- rm -f $idx
+ rm -f "$idx"
 done
 printf "Done\n\n"
 
@@ -211,12 +227,12 @@ function is_repo_empty_and_report_n_exit () {
 }
 
 is_repo_empty_and_report_n_exit
-pack_file=$(find ${pack_dir} -name '*.idx')
+pack_file=$(find "${pack_dir}" -name '*.idx')
 [[ ${pack_file} ==  "" ]] && { 
   echo "No pack file available - do a git gc" 
   git gc 
-  pack_file=$(find ${pack_dir} -name '*.idx')
-  [[ ${pack_file} ==  "" ]] && { 
+  pack_file=$(find "${pack_dir}" -name '*.idx')
+  [[ ${pack_file} ==  "" ]] && {
     if [[ ${repack:-} != true ]]; then
       echo "ERROR: No pack file available and repack != true - fail"
       exit 1
@@ -226,31 +242,47 @@ pack_file=$(find ${pack_dir} -name '*.idx')
    }
 }
 
-IsGitBinaryBlob() {
-  mktmp=$(mktemp -p /tmp)
-	trap "rm -f ${mktmp}" EXIT
-  
-  p=$(printf '%s\t-\t' -)
-  git cat-file -p $1  > ${mktmp}
-  t=$(git diff --no-index --numstat /dev/null "${mktmp}")
-  case "$t" in 
-      "$p"*) 
-          return 0 
-          ;; 
-  esac 
+function isFileGitBinaryBlob () {
+  if [[ "${git_binary_mode}" == "gitdiff" ]]; then
+    local mktmp p t
+    mktmp=$(mktemp -p /tmp)
+    trap "rm -f ${mktmp}" EXIT
+
+    p=$(printf '%s\t-\t' -)
+    git cat-file -p "$1" > "${mktmp}"
+    t=$(git diff --no-index --numstat /dev/null "${mktmp}")
+    case "$t" in
+      "$p"*)
+        return 0
+        ;;
+    esac
+    return 1
+  fi
+}
+
+function isFile8kbNulBlob () {
+  # if first 8KB contains a NUL byte.
+  set +o pipefail
+  if git cat-file -p "$1" | LC_ALL=C od -An -tx1 -N 8192 | grep -qiE '(^|[[:space:]])00([[:space:]]|$)' ; then
+    set -o pipefail
+    return 0
+  fi
+  set -o pipefail
   return 1
 }
 
-IsFileBinaryBlob() {
-	mime_type=$(git cat-file -p "$1" | file - |  awk -F": " '{print $NF}')
+function isFileBinaryBlob () {
+  mime_type=$(git cat-file -p "$1" | file --mime-type - | awk -F": " '{print $NF}')
 
 	if [ "${mime_type}" == "empty" ] ; then
 		return 2
 	fi
-	if [[ ${mime_type} != *" text"* ]] ; then
-		return 0
-	fi
-	return 1
+  case "${mime_type}" in
+    text/*|*/xml|*+xml|*/json|*+json)
+      return 1
+      ;;
+  esac
+  return 0
 }
 
 
@@ -269,7 +301,7 @@ if [[ ${repack} == true ]]; then
   else
     echo "git repo and object sizes after repack: skipped"
   fi
-  pack_file=$(find ${pack_dir} -name '*.idx')
+  pack_file=$(find "${pack_dir}" -name '*.idx')
   [[ ${pack_file} ==  "" ]] && echo "No pack file available - exit 1" && exit 1
 else
   printf "repack == false - skip\n\n"
@@ -318,7 +350,7 @@ bytes_to_megabytes "${git_size_pack}" git_size_pack_mega
 bytes_to_megabytes "${git_size_lfs}" git_size_lfs_mega
 bytes_to_megabytes "${git_size_modules}" git_size_modules_mega
 
-cat <<EOF > ${file_output_git_sizes}
+cat <<EOF > "${file_output_git_sizes}"
 git_size_total='${git_size_total_mega}'
 git_size_objects='${git_size_objects_mega}'
 git_size_pack='${git_size_pack_mega}'
@@ -333,9 +365,10 @@ elif [[ ${git_size_objects:-} -gt $(( 2 * 1024 * 1024 * 1024 )) ]]; then
   git_size_objects_verdict="big"
 fi
 
-cat ${file_output_git_sizes}
+cat "${file_output_git_sizes}"
 
-export pack_file=$(find ${pack_dir} -name '*.idx')
+pack_file=$(find "${pack_dir}" -name '*.idx')
+export pack_file
 echo "Run verify-pack to list all objects in idx"
 verify_pack_exit_code=0
 run_verify_pack_all "${file_verify_pack}" || {
@@ -349,7 +382,7 @@ run_verify_pack_all "${file_verify_pack}" || {
       git repack -a -d --depth=250 --window=250 # accept to use old deltas - add "-f" option to not reuse old deltas for large repos it fails often
       git gc --prune
     ) || git gc --prune
-    export pack_file=$(find ${pack_dir} -name '*.idx')
+    export pack_file=$(find "${pack_dir}" -name '*.idx')
     run_verify_pack_all "${file_verify_pack}" || {
       echo "ERROR: verify-pack failed for all idx files after repack"
       verify_pack_exit_code=$?
@@ -577,13 +610,12 @@ awk -v default_map="${file_tmp_default_blobs_map}" \
 /usr/bin/sort -u -h -r "${file_tmp_bigtosmall_join_total_revisions}" > "${file_output_sorted_size_total_revisions}"
 printf "\n\n"
 
-cat ${file_output_sorted_size_total_revisions} ${file_output_sorted_size_total} | sort -k 1 -h -r > "${file_output_sorted_size_total_final}"
-cat ${file_output_sorted_size_files_revisions} ${file_output_sorted_size_files} | sort -k 1 -h -r > "${file_output_sorted_size_files_final}"
+cat "${file_output_sorted_size_total_revisions}" "${file_output_sorted_size_total}" | sort -k 1 -h -r > "${file_output_sorted_size_total_final}"
+cat "${file_output_sorted_size_files_revisions}" "${file_output_sorted_size_files}" | sort -k 1 -h -r > "${file_output_sorted_size_files_final}"
 
 # Largest single file per extension from the pre-sorted file-level report.
 # Input rows are either: "<size> <path>" or "<size> <H|B> <path>".
 declare -A ext_seen
-largest_no_ext_line=""
 : > "${file_output_largest_per_extension}"
 while IFS= read -r line; do
   [[ -n "${line}" ]] || continue
@@ -611,24 +643,31 @@ while IFS= read -r line; do
   if [[ -z "${ext_seen[${ext}]+x}" ]]; then
     ext_seen["${ext}"]=1
 
-    blob_sha1=$(grep -F " ${size} ${path}" \
+    blob_sha1=$(grep -h -F " ${size} ${path}" \
                     "${file_tmp_bigtosmall_join}" \
                     "${file_tmp_bigtosmall_join_revisions}" \
-                  | cut -f 1 -d " ")
+                  | awk 'NR==1 { print $1 }')
 
     [[ -z "${blob_sha1}" ]] && {
       echo "ERROR: Could not find blob SHA1 for size=${size} path=${path}" >&2
       exit 1
     }
 
-    if IsGitBinaryBlob "$blob_sha1"; then
-        verdict="gB"
+    verdict=""
+    if isFile8kbNulBlob "$blob_sha1"; then
+      verdict="${verdict}nB"
     else
-        verdict="gA"
+      verdict="${verdict}nA"
+    fi
+
+    if isFileGitBinaryBlob "$blob_sha1"; then
+        verdict="${verdict}gB"
+    else
+        verdict="${verdict}gA"
     fi
 
     result=0  
-    IsFileBinaryBlob "$blob_sha1" || result=$?
+    isFileBinaryBlob "$blob_sha1" || result=$?
     if [ "$result" -eq "0" ] ; then
       verdict="${verdict}fB"
     elif [ "$result" -eq "2" ] ; then
@@ -636,6 +675,7 @@ while IFS= read -r line; do
     else
       verdict="${verdict}fA"
     fi
+
     printf "%s %s %s %s\n" "${size}" "${ext}" "${verdict}" "${path}" >> "${file_output_largest_per_extension}"
   fi
 done < "${file_output_sorted_size_files_final}"
@@ -647,7 +687,6 @@ awk 'BEGIN { OFS=" " }
   size = $1
   $1 = ""
   $2 = ""
-  $3 = ""
   sub(/^ +/, "", $0)
   sub(/ \( [IP] \)$/, "", $0)
 
@@ -716,7 +755,7 @@ else
   git_size_lfs_verdict="No-issues-detected"
 fi
 
-cat <<EOF >> ${file_output_git_sizes}
+cat << EOF >> "${file_output_git_sizes}"
 git_size_largest='${git_size_largest}'
 git_size_extensions='${git_size_extensions}'
 git_size_objects_verdict='${git_size_objects_verdict}'
@@ -803,7 +842,7 @@ fi
 echo "Investigate if issues occured"
 issues_found=false
 if [[ -s "${WORKSPACE}/bigtosmall_errors.txt"  ]]; then
-  ls -la ${WORKSPACE}/bigtosmall_errors.txt
+  ls -la "${WORKSPACE}/bigtosmall_errors.txt"
   echo "There are errors during analyzing the files: ${WORKSPACE}/bigtosmall_errors.txt"
   /usr/bin/sort -u "${WORKSPACE}/bigtosmall_errors.txt"
   issues_found=true
@@ -811,7 +850,7 @@ else
   echo ".. no issues in ${WORKSPACE}/bigtosmall_errors.txt"
 fi
 if [[ -s "${WORKSPACE}/bigtosmall_errors_revision.txt" ]]; then
-  ls -la ${WORKSPACE}/bigtosmall_errors_revision.txt
+  ls -la "${WORKSPACE}/bigtosmall_errors_revision.txt"
   echo "There are errors during analyzing the files: ${WORKSPACE}/bigtosmall_errors_revision.txt"
   /usr/bin/sort -u "${WORKSPACE}/bigtosmall_errors_revision.txt"
   issues_found=true
@@ -824,15 +863,13 @@ if [[ $issues_found == true ]] ; then
   echo "Issues found : leave *.tmp for debugging"
   exit 1
 else
-  if [[ ${debug:-} == true ]]; then
+  if [[ ${keep_tmp_files:-} == true ]]; then
     echo "Debugging mode : leave *.tmp files"
   else
     echo "Removing *.tmp files"
-    #rm -rf "${WORKSPACE}"/*.tmp
+    rm -rf "${WORKSPACE}"/*.tmp
   fi
 fi 
-
-
 
 [[ ${verify_pack_exit_code:-0} -ne 0 ]] && {
   echo "WARNING: verify-pack failed with exit code ${verify_pack_exit_code}"
