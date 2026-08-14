@@ -209,8 +209,9 @@ STYLE = """
     .verdict { padding: 3px 8px; border-radius: 999px; border: 1px solid currentColor; font-size: 0.85rem; white-space: nowrap; }
     .verdict.green { color: var(--ok); background: rgba(52, 211, 153, 0.12); }
     .verdict.yellow { color: #fbbf24; background: rgba(251, 191, 36, 0.12); }
-    .verdict.red { color: #ef4444; background: rgba(239, 68, 68, 0.12); }
+    .verdict.red { color: #ff9f9f; background: rgba(239, 68, 68, 0.12); }
     td { white-space: nowrap; }
+
 """
 
 STATIC_COLS = ["#", "Repository"]

@@ -268,6 +268,8 @@ button:hover{background:#45475a}
 .cnt-H{color:#89b4fa}
 .cnt-B{color:#fab387}
 .cnt-hist{color:#ef4444}
+.tag,.sz,.cnt{color:#e5e9ff!important}
+.sz-hist,.cnt-hist{color:#ff9f9f!important}
 .children{display:block}
 .collapsed>.children{display:none}
 .bar-dir{background:#c9cedf}
