@@ -197,7 +197,7 @@ def load_report_metadata(input_file):
     return metadata
 
 
-def render_html(repo_name, tree_json, logs_json, ext_verdicts_json, metadata_json):
+def render_html(repo_name, repo_link, tree_json, logs_json, ext_verdicts_json, metadata_json):
     html_template = r'''<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="UTF-8"><title>Git Object Sizes - __REPO__</title>
@@ -208,6 +208,7 @@ body{font-family:'Segoe UI',Consolas,monospace;background:radial-gradient(circle
 #layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,3fr);gap:10px;padding:0 16px 16px;min-height:0;height:100%}
 #sidebar,#main,#controls{display:contents}
 h1{font-size:1.8em;color:#e5e9ff;margin-bottom:6px}
+h1 a{color:#8ab4ff;text-decoration:none}
 #summary-hint{font-size:.84em;color:#8e97bc;background:#1f243b;border:1px solid #39415f;border-radius:8px;padding:6px 10px;display:block;width:100%}
 #sidebar-title{font-size:1.3em;margin-bottom:6px}
 #sidebar-subtitle{font-size:.9em;color:#aab2d8;margin-bottom:12px}
@@ -319,13 +320,13 @@ button:hover{background:#45475a}
 </head>
 <body>
 <div id="main-top">
-  <h1>Git Object Sizes &mdash; __REPO__</h1>
+  <h1>Git Object Sizes &mdash; <a href="__REPO_LINK__" title="Raw data and more details">__REPO__</a></h1>
 </div>
 <div id="action-row">
   <div id="repo-stats">
     <div class="repo-stat">Total size across all revisions: <strong id="stat-total"></strong></div>
     <div class="repo-stat">Unique files tracked: <strong id="stat-files"></strong></div>
-    <div class="repo-stat">Submodules: <strong id="stat-modules"></strong></div>
+    <div class="repo-stat">Submodules(urls in HEAD): <strong id="stat-modules"></strong></div>
     <div class="repo-stat">LFS: <strong id="stat-lfs"></strong></div>
     <div class="repo-stat">Extensions (incl [no_ext]): <strong id="stat-extensions"></strong></div>
   </div>
@@ -870,7 +871,7 @@ function scheduleRender(debounceMs) {
   countFiles(DATA);
   document.getElementById('stat-total').textContent = fmtSz(total);
   document.getElementById('stat-modules').textContent =
-    (REPORT_META.git_size_modules || '0M') + ' (' + (REPORT_META.git_size_modules_url_count || '0') + ' URLs)';
+    (REPORT_META.git_size_modules_url_count || '0') + ' ( ' + (REPORT_META.git_size_modules || '0M') + ' )';
   document.getElementById('stat-lfs').textContent =
     (REPORT_META.git_size_lfs || '0M') + ' (' + (REPORT_META.git_size_lfs_files_count || '0') + ' files)';
   document.getElementById('stat-files').textContent = totalFiles + ' / ' + totalFiles;
@@ -952,7 +953,7 @@ function scheduleRender(debounceMs) {
 </body>
 </html>'''
 
-    return html_template.replace('__REPO__', repo_name).replace('__DATA__', tree_json).replace('__LOGS__', logs_json).replace('__EXT_VERDICTS__', ext_verdicts_json).replace('__META__', metadata_json)
+    return html_template.replace('__REPO__', repo_name).replace('__REPO_LINK__', repo_link).replace('__DATA__', tree_json).replace('__LOGS__', logs_json).replace('__EXT_VERDICTS__', ext_verdicts_json).replace('__META__', metadata_json)
 
 
 def main():
@@ -981,7 +982,9 @@ def main():
     repo_name = os.path.basename(os.path.abspath(os.path.dirname(input_file)))
     metadata = load_report_metadata(input_file)
     metadata_json = json.dumps(metadata)
-    html = render_html(repo_name, tree_json, logs_json, ext_verdicts_json, metadata_json)
+    output_dir = os.path.dirname(os.path.abspath(output_file))
+    repo_link = './'
+    html = render_html(repo_name, repo_link, tree_json, logs_json, ext_verdicts_json, metadata_json)
 
     with open(output_file, 'w') as f:
         f.write(html)

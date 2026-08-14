@@ -123,6 +123,18 @@ def scan_repos(base_dir: str) -> list[dict]:
             tree_path = "n/a"
         sizes_path = os.path.join(entry.path, "git_sizes.txt")
         values = read_git_sizes(sizes_path) if os.path.isfile(sizes_path) else {}
+        if "git_size_modules" in values or "git_size_modules_url_count" in values:
+            module_count = values.get("git_size_modules_url_count", "0")
+            module_size = values.get("git_size_modules", "0M")
+            values["git_submodules"] = f"{module_count} ( {module_size} )"
+            values.pop("git_size_modules", None)
+            values.pop("git_size_modules_url_count", None)
+        if "git_size_lfs" in values or "git_size_lfs_files_count" in values:
+            lfs_count = values.get("git_size_lfs_files_count", "0")
+            lfs_size = values.get("git_size_lfs", "0M")
+            values["git_lfs_files_count"] = f"{lfs_count} ( {lfs_size} )"
+            values.pop("git_size_lfs", None)
+            values.pop("git_size_lfs_files_count", None)
         repos.append(
             {
                 "repo": entry.name,
@@ -142,11 +154,17 @@ def get_dynamic_keys(repos: list[dict]) -> list[str]:
     for r in repos:
         keys.update(r["values"].keys())
     ordered = sorted(keys)
+    special_keys = [key for key in ("git_lfs_files_count", "git_submodules") if key in keys]
+    for key in special_keys:
+        ordered.remove(key)
+    if "git_size_total" in ordered:
+        ordered.remove("git_size_total")
     if "git_size_pack" in ordered:
         ordered.remove("git_size_pack")
     if "git_verdict" in ordered:
         ordered.remove("git_verdict")
         ordered.insert(0, "git_verdict")
+    ordered.extend(special_keys)
     return ordered
 
 
@@ -172,7 +190,9 @@ def verdict_cell(value: str) -> str:
 def strip_prefix(col: str) -> str:
     """Strip 'git_' prefix from column name for display."""
     if col.startswith("git_"):
-        return col[4:]
+        col = col[4:]
+    if col.startswith("size_"):
+        col = col[5:]
     return col
 
 
@@ -214,8 +234,8 @@ STYLE = """
 
 """
 
-STATIC_COLS = ["#", "Repository"]
-LINK_COLS = ["Tree Report", "Details"]
+STATIC_COLS = ["Repository"]
+LINK_COLS = ["Tree Report"]
 
 
 def build_html(repos: list[dict], base_dir: str, output: str) -> str:
@@ -223,7 +243,10 @@ def build_html(repos: list[dict], base_dir: str, output: str) -> str:
     all_cols = STATIC_COLS + dyn_keys + LINK_COLS
 
     # --- thead ---
-    th_cells = "".join(f"<th>{html.escape(strip_prefix(c))}</th>" for c in all_cols)
+    th_cells = "".join(
+        f"<th>{html.escape(strip_prefix(c))}</th>"
+        for c in all_cols
+    )
     thead = f"<thead><tr>{th_cells}</tr></thead>"
 
     # --- tbody ---
@@ -241,8 +264,7 @@ def build_html(repos: list[dict], base_dir: str, output: str) -> str:
             tree_cell = f'<td><a href="{html.escape(tree_rel)}">git_sizes_tree.html</a></td>'
         
         cells = [
-            f"<td>{idx}</td>",
-            f"<td>{html.escape(r['repo'])}</td>",
+            f'<td><a href="{html.escape(repo_dir_rel)}" title="Open raw folder contents">{html.escape(r["repo"])}</a></td>',
         ]
         for key in dyn_keys:
             value = r["values"].get(key, "n/a") or "n/a"
@@ -258,7 +280,6 @@ def build_html(repos: list[dict], base_dir: str, output: str) -> str:
             else:
                 cells.append(f"<td>{html.escape(value)}</td>")
         cells.append(tree_cell)
-        cells.append(f'<td><a href="{html.escape(repo_dir_rel)}">folder</a></td>')
         rows.append(f'<tr data-repo="{html.escape(r["repo"])}">{"".join(cells)}</tr>')
 
     tbody = "<tbody>" + "\n        ".join(rows) + "</tbody>" if rows else (
