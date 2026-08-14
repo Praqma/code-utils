@@ -182,33 +182,47 @@ def load_extension_verdicts(input_file):
     return verdicts
 
 
-def render_html(repo_name, tree_json, logs_json, ext_verdicts_json):
+def load_report_metadata(input_file):
+    metadata_file = os.path.join(os.path.dirname(os.path.abspath(input_file)), 'git_sizes.txt')
+    metadata = {}
+    if not os.path.isfile(metadata_file):
+      return metadata
+
+    key_re = re.compile(r"^(git_size_total|git_size_modules|git_size_lfs|git_size_lfs_files_count|git_size_modules_url_count)='([^']*)'$")
+    with open(metadata_file) as f:
+        for raw in f:
+            match = key_re.match(raw.strip())
+            if match:
+                metadata[match.group(1)] = match.group(2)
+    return metadata
+
+
+def render_html(repo_name, tree_json, logs_json, ext_verdicts_json, metadata_json):
     html_template = r'''<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="UTF-8"><title>Git Object Sizes - __REPO__</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Segoe UI',Consolas,monospace;background:radial-gradient(circle at top left,#161a2d 0%,#0f1220 50%);color:#e5e9ff;margin:0;height:100vh;overflow:hidden}
-#layout{display:grid;grid-template-columns:400px 1fr;height:100vh}
-#sidebar{border-right:1px solid #39415f;background:#1a1f33;padding:16px;position:sticky;top:0;height:100vh;overflow:auto}
-#main{padding:16px;display:grid;grid-template-rows:auto 1fr;gap:10px;height:100vh;overflow:hidden}
-#main-top{display:grid;gap:6px}
+body{font-family:'Segoe UI',Consolas,monospace;background:radial-gradient(circle at top left,#161a2d 0%,#0f1220 50%);color:#e5e9ff;margin:0;height:100vh;overflow:hidden;display:grid;grid-template-rows:auto auto minmax(0,1fr)}
+#main-top{display:grid;gap:6px;width:100%;padding:16px 16px 10px}
+#layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,3fr);gap:10px;padding:0 16px 16px;min-height:0;height:100%}
+#sidebar,#main,#controls{display:contents}
 h1{font-size:1.8em;color:#e5e9ff;margin-bottom:6px}
-#summary{font-size:1em;color:#aab2d8;margin-bottom:0}
-#summary-hint{font-size:.84em;color:#8e97bc;background:#1f243b;border:1px solid #39415f;border-radius:8px;padding:6px 10px;display:inline-block;width:fit-content}
+#summary-hint{font-size:.84em;color:#8e97bc;background:#1f243b;border:1px solid #39415f;border-radius:8px;padding:6px 10px;display:block;width:100%}
 #sidebar-title{font-size:1.3em;margin-bottom:6px}
 #sidebar-subtitle{font-size:.9em;color:#aab2d8;margin-bottom:12px}
-#controls{display:grid;gap:10px}
-#action-row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-#filter-row{display:grid;gap:6px}
-#filter-row label{font-size:.85em;color:#aab2d8}
+#controls{display:grid;grid-template-rows:auto minmax(0,1fr) auto;gap:10px;height:100%;min-height:0}
+#action-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.5fr) minmax(0,1.5fr);gap:10px;align-items:stretch;padding:0 16px 10px}
+#level-controls{display:grid;grid-template-columns:1fr 1fr;gap:8px;border:1px solid #39415f;background:#1f243b;border-radius:10px;padding:10px}
+#level-controls #filter-row{grid-column:1 / -1}
+#filter-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:6px;background:#232944;border:1px solid #39415f;border-radius:8px;padding:6px 8px}
+#filter-row label{font-size:.85em;color:#aab2d8;white-space:nowrap}
 #path-filter{background:#232944;color:#e5e9ff;border:1px solid #39415f;padding:8px 10px;border-radius:8px;font-size:.95em;width:100%}
 #path-filter::placeholder{color:#8e97bc}
-#filter-status{font-size:.9em;color:#a6adc8;min-height:1.2em}
-#filter-status.err{color:#ef4444}
 #type-filter-row{display:grid;gap:6px;font-size:.95em;border:1px solid #39415f;background:#1f243b;border-radius:10px;padding:10px}
 #type-filter-row label{display:flex;align-items:center;gap:7px;cursor:pointer;line-height:1.2}
 #type-filter-row input[type="checkbox"]{margin:0;transform:translateY(0)}
+#type-filter-reset{margin-top:2px}
 .section-title{font-size:.95em;color:#c9cedf;margin-top:4px}
 .type-legend-line{display:flex;align-items:center;gap:7px;color:#aab2d8;font-size:.92em;padding-left:23px;line-height:1.2}
 .type-inline-dot{width:10px;height:10px;border-radius:50%;display:inline-block;flex-shrink:0;position:relative;top:1px}
@@ -216,21 +230,21 @@ h1{font-size:1.8em;color:#e5e9ff;margin-bottom:6px}
 .type-inline-dot-b{background:#fab387}
 .type-inline-dot-hist{background:#ef4444}
 .type-inline-dot-mixed{background:#c9cedf}
-#ext-panel{border:1px solid #39415f;background:#1f243b;border-radius:10px;padding:10px;display:grid;grid-template-rows:auto auto minmax(0,1fr) auto auto;gap:8px;min-height:0}
-#ext-summary{font-size:.84em;color:#aab2d8}
-#ext-table-head-wrap{border:1px solid #39415f;border-radius:8px 8px 0 0;overflow:hidden}
-#ext-table-wrap{max-height:330px;min-height:0;overflow-y:auto;overflow-x:hidden;border:1px solid #39415f;border-top:none;border-radius:0 0 8px 8px;scrollbar-gutter:stable}
-.ext-table{width:100%;border-collapse:collapse;font-size:.84em;table-layout:fixed}
+#ext-panel{border:1px solid #39415f;background:#1f243b;border-radius:10px;padding:10px;display:grid;grid-template-rows:auto minmax(0,1fr) auto;gap:8px;height:100%;min-height:0;overflow:hidden}
+#repo-stats{display:grid;grid-template-columns:minmax(0,1fr);gap:6px;border:1px solid #39415f;background:#1f243b;border-radius:10px;padding:10px;height:100%;min-height:0}
+.repo-stat{display:flex;justify-content:space-between;gap:10px;min-width:0;color:#aab2d8;font-size:.84em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.repo-stat strong{color:#e5e9ff;font-weight:600}
+#ext-table-head-wrap{position:sticky;top:0;z-index:2;background:#232944;border:1px solid #39415f;border-radius:8px 8px 0 0;overflow:hidden}
+#ext-table-wrap{min-height:0;overflow-y:auto;overflow-x:hidden;border:1px solid #39415f;border-top:none;border-radius:0 0 8px 8px;scrollbar-gutter:stable}
+.ext-table{width:100%;border-collapse:collapse;font-size:.84em;table-layout:auto}
 .ext-table th,.ext-table td{min-width:0;overflow:hidden;text-overflow:ellipsis;padding:6px 8px}
 .ext-table th{background:#232944;color:#c9cedf;text-align:left;border-bottom:1px solid #39415f;white-space:normal;line-height:1.15}
 .ext-table td{border-bottom:1px solid #2a2f48;color:#dfe4ff;white-space:nowrap}
 .ext-table td:nth-child(2),.ext-table td:nth-child(3){text-align:right;color:#aab2d8}
 .ext-table td:nth-child(4){font-weight:600;color:#c9cedf}
+.ext-table tbody tr{cursor:pointer}
+.ext-table tbody tr:hover td{background:#2a2a3e}
 .ext-table tr:last-child td{border-bottom:none}
-.ext-table th:nth-child(1),.ext-table td:nth-child(1){width:34%}
-.ext-table th:nth-child(2),.ext-table td:nth-child(2){width:24%}
-.ext-table th:nth-child(3),.ext-table td:nth-child(3){width:18%}
-.ext-table th:nth-child(4),.ext-table td:nth-child(4){width:24%}
 #ext-empty{font-size:.84em;color:#8e97bc;padding:2px 0}
 .ext-legend{font-size:.8em;color:#9aa4cd;line-height:1.3}
 .ctx-hint{font-size:.82em;color:#8e97bc}
@@ -239,9 +253,9 @@ button:hover{background:#45475a}
 #tree-panel{display:grid;grid-template-rows:auto 1fr;min-height:0;border:1px solid #39415f;border-radius:10px;overflow-y:auto;overflow-x:hidden;background:#151a2d}
 #tree{font-size:.94em;overflow-x:hidden;overflow-y:visible;min-height:0}
 .hdr,.row{display:grid;grid-template-columns:minmax(0,1fr) 40px minmax(24px,.8fr) minmax(13px,.225fr) minmax(16px,.25fr);column-gap:5px;align-items:center}
-.hdr{padding:6px 8px;font-size:.9em;color:#aab2d8;border-bottom:1px solid #39415f;background:#1a1f33;user-select:none}
+.hdr{position:sticky;top:0;z-index:3;padding:6px 8px;font-size:.9em;color:#aab2d8;border-bottom:1px solid #39415f;background:#1a1f33;user-select:none}
 .hdr .h-name{min-width:0}
-.hdr .h-tag{text-align:center}
+.hdr .h-tag{text-align:right}
 .hdr .h-bar{text-align:center}
 .hdr .h-sz{text-align:right}
 .hdr .h-cnt{text-align:right}
@@ -254,7 +268,7 @@ button:hover{background:#45475a}
 .tog{width:14px;font-size:.8em;color:#585b70;text-align:center}
 .ico{font-size:.95em;width:16px;text-align:center}
 .nm{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.tag{text-align:center;color:#aab2d8;font-size:.82em}
+.tag{text-align:right;color:#aab2d8;font-size:.82em}
 .bar-w{width:100%;background:#40476b;border-radius:3px;height:9px;overflow:hidden}
 .bar{height:9px;border-radius:3px;min-width:1px}
 .sz{text-align:right;color:#a6adc8;font-size:.92em}
@@ -292,12 +306,10 @@ button:hover{background:#45475a}
   body{height:auto;overflow:auto}
   #layout{grid-template-columns:1fr}
   #sidebar{position:static;height:auto;border-right:none;border-bottom:1px solid #39415f}
+  #controls{height:auto}
   #main{height:auto;overflow:visible}
+  #action-row{grid-template-columns:1fr}
   #tree-panel{min-height:420px}
-  .ext-table th:nth-child(1),.ext-table td:nth-child(1){width:36%}
-  .ext-table th:nth-child(2),.ext-table td:nth-child(2){width:22%}
-  .ext-table th:nth-child(3),.ext-table td:nth-child(3){width:16%}
-  .ext-table th:nth-child(4),.ext-table td:nth-child(4){width:26%}
 }
 @media (max-width:1280px){
   .hdr,.row{grid-template-columns:minmax(0,1fr) 34px minmax(18px,.9fr) minmax(10px,.2fr) minmax(12px,.2fr)}
@@ -306,36 +318,40 @@ button:hover{background:#45475a}
 </style>
 </head>
 <body>
+<div id="main-top">
+  <h1>Git Object Sizes &mdash; __REPO__</h1>
+</div>
+<div id="action-row">
+  <div id="repo-stats">
+    <div class="repo-stat">Total size across all revisions: <strong id="stat-total"></strong></div>
+    <div class="repo-stat">Unique files tracked: <strong id="stat-files"></strong></div>
+    <div class="repo-stat">Submodules: <strong id="stat-modules"></strong></div>
+    <div class="repo-stat">LFS: <strong id="stat-lfs"></strong></div>
+    <div class="repo-stat">Extensions (incl [no_ext]): <strong id="stat-extensions"></strong></div>
+  </div>
+  <div id="level-controls">
+    <button onclick="expandAll()">Expand All</button>
+    <button onclick="collapseAll()">Collapse All</button>
+    <button onclick="changeDepth(1)" title="Show one more folder level">+ Level</button>
+    <button onclick="changeDepth(-1)" title="Show one fewer folder level">- Level</button>
+    <div id="filter-row">
+          <label for="path-filter">Regex</label>
+      <input id="path-filter" type="text" placeholder="e.g. installer|\\.jar$ or click an extension" spellcheck="false" />
+      <button id="path-filter-clear" type="button" title="Clear path regex">Clear</button>
+    </div>
+  </div>
+  <div id="type-filter-row">
+    <label><input id="type-h" type="checkbox" checked /><span class="type-inline-dot type-inline-dot-h"></span>H (HEAD/default branch)</label>
+    <label><input id="type-b" type="checkbox" checked /><span class="type-inline-dot type-inline-dot-b"></span>B (branch only)</label>
+    <label><input id="type-hist" type="checkbox" checked /><span class="type-inline-dot type-inline-dot-hist"></span>historical (not in active branches)</label>
+    <div class="type-legend-line"><span class="type-inline-dot type-inline-dot-mixed"></span>mixed directories</div>
+    <button id="type-filter-reset" type="button" title="Select H, B, and historical files">Reset Types</button>
+  </div>
+</div>
 <div id="layout">
   <aside id="sidebar">
-    <div id="sidebar-title">Filters</div>
-    <div id="sidebar-subtitle">Path and type filters apply instantly as you type.</div>
     <div id="controls">
-      <div id="filter-row">
-        <label for="path-filter">Path regex</label>
-        <input id="path-filter" type="text" placeholder="e.g. installer|\\.jar$" spellcheck="false" />
-      </div>
-      <div id="type-filter-row">
-        <label><input id="type-h" type="checkbox" checked /><span class="type-inline-dot type-inline-dot-h"></span>H (HEAD/default branch)</label>
-        <label><input id="type-b" type="checkbox" checked /><span class="type-inline-dot type-inline-dot-b"></span>B (branch only)</label>
-        <label><input id="type-hist" type="checkbox" checked /><span class="type-inline-dot type-inline-dot-hist"></span>historical (not in active branches)</label>
-        <div class="type-legend-line"><span class="type-inline-dot type-inline-dot-mixed"></span>mixed directories</div>
-      </div>
-      <div id="action-row">
-        <button onclick="expandAll()">Expand All</button>
-        <button onclick="collapseAll()">Collapse All</button>
-        <button onclick="setDepth(1)">Top Level</button>
-        <button onclick="setDepth(2)">2 Levels</button>
-        <button onclick="setDepth(3)">3 Levels</button>
-      </div>
       <div id="ext-panel">
-        <div class="section-title">Extension Size Breakdown</div>
-        <div id="ext-summary"></div>
-        <div class="ext-legend">
-          <strong>nA/nB</strong> = 8kb NUL char detection for binary<br>
-          <strong>gA/gB</strong> = git diff says text/binary<br>
-          <strong>fA/fB/fE</strong> = <em>file</em> says text/binary/empty.
-        </div>
         <div id="ext-table-head-wrap">
           <table class="ext-table" aria-hidden="true">
             <thead>
@@ -343,7 +359,7 @@ button:hover{background:#45475a}
                 <th>Extension</th>
                 <th>Total Size</th>
                 <th>Count</th>
-                <th>Verdict</th>
+                <th title="nA/nB = 8kb NUL char detection for binary&#10;gA/gB = git diff says text/binary&#10;fA/fB/fE = file says text/binary/empty">Verdict *</th>
               </tr>
             </thead>
           </table>
@@ -355,22 +371,16 @@ button:hover{background:#45475a}
         </div>
         <div id="ext-empty" style="display:none">No matching files.</div>
       </div>
-      <div id="filter-status"></div>
     </div>
   </aside>
   <main id="main">
-    <div id="main-top">
-      <h1>Git Object Sizes &mdash; __REPO__</h1>
-      <div id="summary"></div>
-      <div id="summary-hint">Right-click a file row to view git history output. Pack/Idx: I = direct-packed blob, P = revision/delta-packed blob.</div>
-    </div>
     <div id="tree-panel">
       <div class="hdr">
         <div class="h-name">Name</div>
-        <div class="h-tag" title="I = direct-packed object total, P = revision/delta-packed object total">Pack/Idx</div>
+        <div class="h-tag" title="I = direct-packed object total&#10;P = revision/delta-packed object total">P/I *</div>
         <div class="h-bar">Relative Size</div>
         <div class="h-sz">Total Size</div>
-        <div class="h-cnt">Revisions</div>
+        <div class="h-cnt" title="Empty means the file has only one revision">Revisions *</div>
       </div>
       <div id="tree"></div>
     </div>
@@ -390,12 +400,15 @@ button:hover{background:#45475a}
 const DATA = __DATA__;
 const FILE_LOGS = __LOGS__;
 const EXT_VERDICTS = __EXT_VERDICTS__;
+const REPORT_META = __META__;
 const total = DATA.s;
 let pathRegexText = '';
 let pathRegex = null;
 let showH = true;
 let showB = true;
 let showHist = true;
+let treeDepth = 0;
+let totalFiles = 0;
 let renderTimer = null;
 let renderToken = 0;
 
@@ -408,9 +421,10 @@ function isHistoricalLeaf(node) {
 }
 
 function pathMatches(path) {
+  const matchPath = normalizeLeafPath(path);
   if (pathRegex) {
     pathRegex.lastIndex = 0;
-    if (!pathRegex.test(path)) return false;
+    if (!pathRegex.test(matchPath)) return false;
   }
   return true;
 }
@@ -448,7 +462,7 @@ function filterTree(node, parentPath) {
   if (!isDir) return (pathMatches(fullPath) && typeMatches(node.p)) ? copy : null;
 
   const children = (node.ch || []).map(c => filterTree(c, fullPath)).filter(Boolean);
-  if (children.length > 0 || pathMatches(fullPath)) {
+  if (children.length > 0) {
     copy.ch = children;
     copy.dp = folderPrefixFromChildren(children);
     return copy;
@@ -470,6 +484,11 @@ function sumVisibleFileSize(node) {
   let sum = 0;
   for (const c of (node.ch || [])) sum += sumVisibleFileSize(c);
   return sum;
+}
+
+function updateFilteredStats(totalVisible, totalVisibleSize) {
+  document.getElementById('stat-total').textContent = fmtSz(totalVisibleSize) + ' / ' + fmtSz(total);
+  document.getElementById('stat-files').textContent = totalVisible + ' / ' + totalFiles;
 }
 
 function fileExtFromPath(path) {
@@ -508,14 +527,13 @@ function renderExtensionTable(filteredChildren) {
     count: values.count,
     verdict: EXT_VERDICTS[normalizeExtKey(ext)] || 'n/a'
   })).sort((a, b) => b.size - a.size);
+  document.getElementById('stat-extensions').textContent = String(rows.length);
   const body = document.getElementById('ext-table-body');
-  const summary = document.getElementById('ext-summary');
   const empty = document.getElementById('ext-empty');
   const wrap = document.getElementById('ext-table-wrap');
 
   body.innerHTML = '';
   if (rows.length === 0) {
-    summary.textContent = '';
     empty.style.display = 'block';
     wrap.style.display = 'none';
     return;
@@ -523,10 +541,6 @@ function renderExtensionTable(filteredChildren) {
 
   empty.style.display = 'none';
   wrap.style.display = 'block';
-
-  let total = 0;
-  for (const item of rows) total += item.size;
-  summary.textContent = rows.length + ' extension(s), total ' + fmtSz(total);
 
   for (const item of rows) {
     const tr = document.createElement('tr');
@@ -538,10 +552,21 @@ function renderExtensionTable(filteredChildren) {
     tdSize.textContent = fmtSz(item.size);
     tdCount.textContent = String(item.count);
     tdVerdict.textContent = item.verdict;
+    tdVerdict.title = 'nA/nB = 8kb NUL char detection for binary\ngA/gB = git diff says text/binary\nfA/fB/fE = file says text/binary/empty';
     tr.appendChild(tdExt);
     tr.appendChild(tdSize);
     tr.appendChild(tdCount);
     tr.appendChild(tdVerdict);
+    tr.title = 'Filter tree by .' + item.ext + ' files; click again to clear';
+    tr.addEventListener('click', () => {
+      const input = document.getElementById('path-filter');
+      const filter = item.ext === '[no_ext]'
+        ? '(^|/)[^/]*$'
+        : '\\.' + item.ext.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&') + '$';
+      input.value = input.value === filter ? '' : filter;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.focus();
+    });
     body.appendChild(tr);
   }
 }
@@ -601,6 +626,7 @@ function buildNode(node, depth) {
 
   const row = document.createElement('div');
   row.className = 'row' + (hasKids ? ' clickable' : '');
+  row.title = 'Right-click a file row to view git history output';
   row.style.setProperty('--depth', depth);
   const historicalLeaf = isHistoricalLeaf(node);
 
@@ -618,7 +644,7 @@ function buildNode(node, depth) {
   const nm = document.createElement('div');
   nm.className = 'nm';
   nm.textContent = parsed.displayName;
-  nm.title = parsed.displayName + ' \u2014 ' + fmtSz(node.s) + (node.c > 1 ? ' (' + node.c + ' revisions)' : '');
+  nm.title = parsed.displayName + ' \u2014 ' + fmtSz(node.s) + (node.c > 1 ? ' (' + node.c + ' revisions)' : '') + '\nRight-click a file row to view git history output';
 
   const tag = document.createElement('div');
   tag.className = 'tag';
@@ -673,13 +699,10 @@ function buildNode(node, depth) {
       if (!collapsed) ensureChildrenRendered(ch);
     };
   } else if (historicalLeaf) {
-    row.title = 'Right-click to show git log history output';
     row.addEventListener('contextmenu', (ev) => {
       ev.preventDefault();
       showLogModal(cleanPath, parsed.displayName);
     });
-  } else {
-    row.title = 'History output is available only for historical files';
   }
   return div;
 }
@@ -709,28 +732,37 @@ function closeLogModal() {
 
 function expandAll() {
   function expandNode(el) {
-    const ch = el.querySelector(':scope>.children');
+    const ch = Array.from(el.children).find(child => child.classList.contains('children'));
     if (!ch) return;
     ensureChildrenRendered(ch);
     el.classList.remove('collapsed');
-    const t = el.querySelector(':scope>.row>.tog'); if (t) t.innerHTML = '&#9660;';
-    const i = el.querySelector(':scope>.row>.ico'); if (i && i.classList.contains('ico-dir')) i.innerHTML = '&#128194;';
-    el.querySelectorAll(':scope>.children>.node').forEach(expandNode);
+    const row = Array.from(el.children).find(child => child.classList.contains('row'));
+    const t = row && row.querySelector('.tog'); if (t) t.innerHTML = '&#9660;';
+    const i = row && row.querySelector('.ico'); if (i && i.classList.contains('ico-dir')) i.innerHTML = '&#128194;';
+    Array.from(ch.children).filter(child => child.classList.contains('node')).forEach(expandNode);
   }
   document.querySelectorAll('#tree>.node').forEach(expandNode);
+  document.querySelectorAll('#tree .node').forEach(el => {
+    const ch = Array.from(el.children).find(child => child.classList.contains('children'));
+    if (!ch) return;
+    const row = Array.from(el.children).find(child => child.classList.contains('row'));
+    const t = row && row.querySelector('.tog'); if (t) t.innerHTML = '&#9660;';
+  });
 }
 
 function collapseAll() {
-  document.querySelectorAll('.node:not(.collapsed)').forEach(n => {
-    if (n.querySelector(':scope>.children')) {
-      n.classList.add('collapsed');
-      const t = n.querySelector(':scope>.row>.tog'); if (t) t.innerHTML = '&#9654;';
-      const i = n.querySelector(':scope>.row>.ico'); if (i && i.classList.contains('ico-dir')) i.innerHTML = '&#128193;';
-    }
+  document.querySelectorAll('#tree .node').forEach(n => {
+    const ch = Array.from(n.children).find(child => child.classList.contains('children'));
+    if (!ch) return;
+    n.classList.add('collapsed');
+    const row = Array.from(n.children).find(child => child.classList.contains('row'));
+    const t = row && row.querySelector('.tog'); if (t) t.innerHTML = '&#9654;';
+    const i = row && row.querySelector('.ico'); if (i && i.classList.contains('ico-dir')) i.innerHTML = '&#128193;';
   });
 }
 
 function setDepth(max) {
+  treeDepth = Math.max(0, max);
   collapseAll();
   function openTo(el, d) {
     if (d >= max) return;
@@ -746,6 +778,10 @@ function setDepth(max) {
   document.querySelectorAll('#tree>.node').forEach(n => openTo(n, 0));
 }
 
+function changeDepth(delta) {
+  setDepth(treeDepth + delta);
+}
+
 function renderTree() {
   const tree = document.getElementById('tree');
   tree.innerHTML = '';
@@ -759,23 +795,16 @@ function renderTree() {
   if (pathRegexText) {
     expandAll();
   } else {
-    setDepth(1);
+    collapseAll();
   }
 
   const totalVisible = filteredRoot.ch.reduce((sum, c) => sum + countVisibleFiles(c), 0);
   const totalVisibleSize = filteredRoot.ch.reduce((sum, c) => sum + sumVisibleFileSize(c), 0);
-  const status = document.getElementById('filter-status');
-  if (pathRegexText || !showH || !showB || !showHist) {
-    status.classList.remove('err');
-    status.textContent = totalVisible + ' matching file(s), total ' + fmtSz(totalVisibleSize);
-  } else {
-    status.textContent = '';
-  }
+  updateFilteredStats(totalVisible, totalVisibleSize);
 }
 
 function renderTreeAsync(token) {
   const tree = document.getElementById('tree');
-  const status = document.getElementById('filter-status');
   if (token !== renderToken) return;
 
   const filteredRoot = {
@@ -809,34 +838,27 @@ function renderTreeAsync(token) {
       return;
     }
 
-    if (!pathRegexText) setDepth(1);
+    if (pathRegexText) {
+      expandAll();
+    } else {
+      collapseAll();
+    }
 
     const totalVisible = filteredRoot.ch.reduce((sum, c) => sum + countVisibleFiles(c), 0);
     const totalVisibleSize = filteredRoot.ch.reduce((sum, c) => sum + sumVisibleFileSize(c), 0);
-    if (pathRegexText || !showH || !showB || !showHist) {
-      status.classList.remove('err');
-      status.textContent = totalVisible + ' matching file(s), total ' + fmtSz(totalVisibleSize);
-    } else {
-      status.textContent = '';
-    }
+    updateFilteredStats(totalVisible, totalVisibleSize);
   }
 
   requestAnimationFrame(appendChunk);
 }
 
 function scheduleRender(debounceMs) {
-  const status = document.getElementById('filter-status');
   if (renderTimer) {
     clearTimeout(renderTimer);
     renderTimer = null;
   }
 
   const token = ++renderToken;
-  if (pathRegexText) {
-    status.classList.remove('err');
-    status.textContent = 'Filtering...';
-  }
-
   renderTimer = setTimeout(() => {
     renderTimer = null;
     renderTreeAsync(token);
@@ -844,17 +866,20 @@ function scheduleRender(debounceMs) {
 }
 
 (function () {
-  let fc = 0;
-  function countFiles(n) { if (!n.d) fc++; if (n.ch) n.ch.forEach(countFiles); }
+  function countFiles(n) { if (!n.d) totalFiles++; if (n.ch) n.ch.forEach(countFiles); }
   countFiles(DATA);
-  document.getElementById('summary').textContent =
-    'Total git object size across all revisions: ' + fmtSz(total) +
-    ' \u2022 Unique files tracked: ' + fc;
+  document.getElementById('stat-total').textContent = fmtSz(total);
+  document.getElementById('stat-modules').textContent =
+    (REPORT_META.git_size_modules || '0M') + ' (' + (REPORT_META.git_size_modules_url_count || '0') + ' URLs)';
+  document.getElementById('stat-lfs').textContent =
+    (REPORT_META.git_size_lfs || '0M') + ' (' + (REPORT_META.git_size_lfs_files_count || '0') + ' files)';
+  document.getElementById('stat-files').textContent = totalFiles + ' / ' + totalFiles;
   const input = document.getElementById('path-filter');
+  const clearFilter = document.getElementById('path-filter-clear');
   const typeH = document.getElementById('type-h');
   const typeB = document.getElementById('type-b');
   const typeHist = document.getElementById('type-hist');
-  const status = document.getElementById('filter-status');
+  const typeReset = document.getElementById('type-filter-reset');
   const modal = document.getElementById('log-modal');
   const closeBtn = document.getElementById('log-close');
 
@@ -877,19 +902,25 @@ function scheduleRender(debounceMs) {
     scheduleRender(0);
   });
 
+  typeReset.addEventListener('click', () => {
+    typeH.checked = true;
+    typeB.checked = true;
+    typeHist.checked = true;
+    syncTypeFilters();
+    scheduleRender(0);
+  });
+
   syncTypeFilters();
 
   input.addEventListener('input', () => {
     pathRegexText = input.value.trim();
     if (!pathRegexText) {
       pathRegex = null;
-      status.classList.remove('err');
       scheduleRender(0);
       return;
     }
     try {
       pathRegex = new RegExp(pathRegexText, 'i');
-      status.classList.remove('err');
       scheduleRender(140);
     } catch (e) {
       renderToken += 1;
@@ -898,9 +929,13 @@ function scheduleRender(debounceMs) {
         renderTimer = null;
       }
       pathRegex = null;
-      status.classList.add('err');
-      status.textContent = 'Invalid regex';
     }
+  });
+
+  clearFilter.addEventListener('click', () => {
+    input.value = '';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.focus();
   });
 
   closeBtn.addEventListener('click', closeLogModal);
@@ -917,7 +952,7 @@ function scheduleRender(debounceMs) {
 </body>
 </html>'''
 
-    return html_template.replace('__REPO__', repo_name).replace('__DATA__', tree_json).replace('__LOGS__', logs_json).replace('__EXT_VERDICTS__', ext_verdicts_json)
+    return html_template.replace('__REPO__', repo_name).replace('__DATA__', tree_json).replace('__LOGS__', logs_json).replace('__EXT_VERDICTS__', ext_verdicts_json).replace('__META__', metadata_json)
 
 
 def main():
@@ -944,7 +979,9 @@ def main():
     ext_verdicts = load_extension_verdicts(input_file)
     ext_verdicts_json = json.dumps(ext_verdicts)
     repo_name = os.path.basename(os.path.abspath(os.path.dirname(input_file)))
-    html = render_html(repo_name, tree_json, logs_json, ext_verdicts_json)
+    metadata = load_report_metadata(input_file)
+    metadata_json = json.dumps(metadata)
+    html = render_html(repo_name, tree_json, logs_json, ext_verdicts_json, metadata_json)
 
     with open(output_file, 'w') as f:
         f.write(html)

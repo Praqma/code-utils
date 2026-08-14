@@ -317,17 +317,15 @@ if [[ ${skip_sizes:-} == "" ]]; then
 
   echo "Get git modules sizes"
   git_size_modules="0"
-  
   if [[ -d "${git_dir}/modules" ]]; then
     git_size_modules=$(du -sb "${git_dir}/modules" | cut -f 1)
   else
-    if [[ -f ".gitmodules" ]]; then
-      echo ".gitmodules found - but no modules initialized"
-      git_size_modules="1024000" # 1MB for just to hightlight that there are submodules but not initialized
-    else
-      echo "git modules: no .gitmodules found"
-    fi
+    echo "git modules: no .gitmodules found"
   fi
+
+  : > "${WORKSPACE}/git_modules_urls.txt"
+  git show HEAD:.gitmodules 2> /dev/null | git config --file - --get-regexp '^submodule\..*\.url$' > "${WORKSPACE}/git_modules_urls.txt" 2> /dev/null || echo "No .gitmodules found in HEAD"
+  git_modules_count=$(wc -l < "${WORKSPACE}/git_modules_urls.txt")
 
   echo "Get git lfs sizes"
   git_size_lfs="0"
@@ -335,10 +333,14 @@ if [[ ${skip_sizes:-} == "" ]]; then
     git_size_lfs=$(du -sb "${git_dir}/lfs" | cut -f 1)
   }
   echo "Get git lfs files"
-  git lfs ls-files --all > "${WORKSPACE}/git_lfs_files.txt" || {
+  if git lfs ls-files --all > "${WORKSPACE}/git_lfs_files.txt" 2>/dev/null; then
+    git_lfs_files_count=$(wc -l < "${WORKSPACE}/git_lfs_files.txt")
+  else
     echo "No git lfs files or error during git lfs ls-files --all - skip"
+    git_size_lfs="0"
     rm -f "${WORKSPACE}/git_lfs_files.txt"
-  }
+  fi
+  
 else
   echo "git lfs and modules sizes: skipped"
 fi
@@ -355,7 +357,9 @@ git_size_total='${git_size_total_mega}'
 git_size_objects='${git_size_objects_mega}'
 git_size_pack='${git_size_pack_mega}'
 git_size_lfs='${git_size_lfs_mega}'
+git_size_lfs_files_count='${git_lfs_files_count:-0}'
 git_size_modules='${git_size_modules_mega}'
+git_size_modules_url_count='${git_modules_count:-0}'
 EOF
 
 git_size_objects_verdict="ok"
