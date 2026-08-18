@@ -123,18 +123,6 @@ def scan_repos(base_dir: str) -> list[dict]:
             tree_path = "n/a"
         sizes_path = os.path.join(entry.path, "git_sizes.txt")
         values = read_git_sizes(sizes_path) if os.path.isfile(sizes_path) else {}
-        if "git_size_modules" in values or "git_size_modules_url_count" in values:
-            module_count = values.get("git_size_modules_url_count", "0")
-            module_size = values.get("git_size_modules", "0M")
-            values["git_submodules"] = f"{module_count} ( {module_size} )"
-            values.pop("git_size_modules", None)
-            values.pop("git_size_modules_url_count", None)
-        if "git_size_lfs" in values or "git_size_lfs_files_count" in values:
-            lfs_count = values.get("git_size_lfs_files_count", "0")
-            lfs_size = values.get("git_size_lfs", "0M")
-            values["git_lfs_files_count"] = f"{lfs_count} ( {lfs_size} )"
-            values.pop("git_size_lfs", None)
-            values.pop("git_size_lfs_files_count", None)
         repos.append(
             {
                 "repo": entry.name,
@@ -168,7 +156,7 @@ def get_dynamic_keys(repos: list[dict]) -> list[str]:
     return ordered
 
 
-def verdict_cell(value: str) -> str:
+def verdict_class(value: str) -> str:
     val_lower = (value or "").strip().lower()
     if (
         "too-big" in val_lower
@@ -184,6 +172,18 @@ def verdict_cell(value: str) -> str:
         cls = "green"
     else:
         cls = "yellow"
+    return cls
+
+
+def verdict_group(value: str) -> str:
+    """Return the filter-panel group for a verdict."""
+    if (value or "").strip().lower() == "n/a":
+        return "unknown"
+    return verdict_class(value)
+
+
+def verdict_cell(value: str) -> str:
+    cls = verdict_class(value)
     return f'<span class="verdict {cls}">{html.escape(value)}</span>'
 
 
@@ -211,13 +211,44 @@ STYLE = """
     :root { --bg:#0d1324; --panel:#151e37; --line:#2a355e; --text:#e8ecff; --muted:#a7b4df; --accent:#8ab4ff; --ok:#34d399; --na:#94a3b8; }
     * { box-sizing: border-box; }
     body { margin: 0; font-family: Segoe UI, Arial, sans-serif; background: radial-gradient(circle at top left, #1a2850 0%, var(--bg) 60%); color: var(--text); }
-    main { padding: 24px; }
+    main { height: 100vh; min-height: 0; padding: 24px; display: flex; flex-direction: column; }
     .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; overflow-x: auto; }
+    .repo-list { flex: 1 1 auto; min-height: 0; padding: 0; overflow-x: auto; overflow-y: auto; scrollbar-gutter: stable both-edges; scrollbar-width: auto; scrollbar-color: #8ab4ff #111a32; }
+    .repo-list::-webkit-scrollbar { width: 12px; height: 12px; }
+    .repo-list::-webkit-scrollbar-track { background: #111a32; }
+    .repo-list::-webkit-scrollbar-thumb { background: #8ab4ff; border: 3px solid #111a32; border-radius: 6px; }
+    .repo-list::-webkit-scrollbar-thumb:hover { background: #cfe0ff; }
+    .overview-header { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-bottom: 16px; }
+    .overview-header .card { overflow: hidden; }
     h1 { margin: 0 0 8px; }
     .meta { color: var(--muted); margin: 0 0 16px; }
+    .status-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+    .status-title { margin: 0; font-size: 0.9rem; color: #cfe0ff; }
+    .status-actions { display: flex; gap: 6px; }
+    .status-actions button { border: 1px solid var(--line); border-radius: 4px; padding: 3px 6px; background: #111a32; color: var(--text); font-size: 0.75rem; cursor: pointer; }
+    .status-actions button:hover { background: #1a2440; }
+    .status-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; }
+    .status-group { min-width: 0; }
+    .status-group-title { margin: 0 0 4px; padding: 0; border: 0; background: transparent; font: inherit; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; cursor: pointer; }
+    .status-group.green .status-group-title { color: var(--ok); }
+    .status-group.yellow .status-group-title { color: #fbbf24; }
+    .status-group.red .status-group-title { color: #ef4444; }
+    .status-group.unknown .status-group-title { color: #fff; }
+    .status-grid { display: grid; gap: 4px; }
+    .status-item { display: flex; align-items: center; gap: 6px; border-left: 3px solid currentColor; padding: 2px 0 2px 6px; cursor: pointer; }
+    .status-item input[type="checkbox"] { margin: 0; accent-color: currentColor; }
+    .status-count { min-width: 2ch; font-size: 1rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .status-label { color: var(--muted); font-size: 0.7rem; overflow-wrap: anywhere; }
+    .status-item.green { color: var(--ok); }
+    .status-item.yellow { color: #fbbf24; }
+    .status-item.red { color: #ef4444; }
+    .status-item.unknown { color: #fff; }
+    @media (max-width: 720px) { main { padding: 16px; } .overview-header { grid-template-columns: 1fr; } .status-groups { grid-template-columns: 1fr; } }
     table { width: 100%; border-collapse: collapse; }
+    #repoTable { min-width: 1100px; }
     th, td { padding: 10px 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
     th { background: #111a32; color: #cfe0ff; cursor: pointer; user-select: none; }
+    #repoTable th { position: sticky; top: 0; z-index: 1; }
     th:hover { background: #1a2440; }
     th.sortable::after { content: ' ⇅'; font-size: 0.85em; opacity: 0.6; }
     th.sorted-asc::after { content: ' ↑'; opacity: 1; }
@@ -234,25 +265,34 @@ STYLE = """
 
 """
 
-STATIC_COLS = ["Repository"]
-LINK_COLS = ["Tree Report"]
+DISPLAY_COLUMNS = [
+    "Repository", "verdict", "extensions", "objects",
+    "LFS", "modules", "Tree Report", "Details",
+]
 
 
 def build_html(repos: list[dict], base_dir: str, output: str) -> str:
-    dyn_keys = get_dynamic_keys(repos)
-    all_cols = STATIC_COLS + dyn_keys + LINK_COLS
+    verdict_counts: dict[str, int] = {}
+    for repo in repos:
+        verdict = repo["values"].get("git_verdict", "n/a") or "n/a"
+        verdict_counts[verdict] = verdict_counts.get(verdict, 0) + 1
 
     # --- thead ---
+    header_titles = {
+        "objects": "Total object size (largest object size)",
+        "LFS": "LFS file count (LFS size)",
+        "modules": "Module URL count (module size)",
+    }
     th_cells = "".join(
-        f"<th>{html.escape(strip_prefix(c))}</th>"
-        for c in all_cols
+        f'<th title="{header_titles[column]}">{column}</th>' if column in header_titles else f"<th>{column}</th>"
+        for column in DISPLAY_COLUMNS
     )
     thead = f"<thead><tr>{th_cells}</tr></thead>"
 
     # --- tbody ---
     out_dir = os.path.dirname(os.path.abspath(output))
     rows = []
-    for idx, r in enumerate(repos, start=1):
+    for r in repos:
         tree_rel = make_href(r["tree_abs"], out_dir) if r["tree_abs"] != "n/a" else "n/a"
         repo_dir_rel = make_href(r["repo_dir_abs"], out_dir)
         if not repo_dir_rel.endswith("/"):
@@ -264,34 +304,54 @@ def build_html(repos: list[dict], base_dir: str, output: str) -> str:
             tree_cell = f'<td><a href="{html.escape(tree_rel)}">git_sizes_tree.html</a></td>'
         
         cells = [
-            f'<td><a href="{html.escape(repo_dir_rel)}" title="Open raw folder contents">{html.escape(r["repo"])}</a></td>',
+            f"<td>{html.escape(r['repo'])}</td>",
+            f"<td>{verdict_cell(r['values'].get('git_verdict', 'n/a') or 'n/a')}</td>",
         ]
-        for key in dyn_keys:
-            value = r["values"].get(key, "n/a") or "n/a"
-            if "verdict" in key.lower():
-                cells.append(f"<td>{verdict_cell(value)}</td>")
-            elif key == "git_size_extensions":
-                short_value = truncate_with_ellipsis(value, 20)
-                cells.append(
-                    f'<td title="{html.escape(value)}">{html.escape(short_value)}</td>'
-                )
-            elif key.startswith("git_size_"):
-                cells.append(f'<td class="num">{html.escape(value)}</td>')
-            else:
-                cells.append(f"<td>{html.escape(value)}</td>")
+        values = r["values"]
+        extensions = values.get("git_size_extensions", "n/a") or "n/a"
+        cells.extend([
+            f'<td title="{html.escape(extensions)}">{html.escape(truncate_with_ellipsis(extensions, 20))}</td>',
+            f'<td class="num" title="Total object size (largest object size)">{html.escape(values.get("git_size_objects", "n/a") or "n/a")} ({html.escape(values.get("git_size_largest", "n/a") or "n/a")})</td>',
+            f'<td class="num" title="LFS file count (LFS size)">{html.escape(values.get("git_size_lfs_files_count", "n/a") or "n/a")} ({html.escape(values.get("git_size_lfs", "n/a") or "n/a")})</td>',
+            f'<td class="num" title="Module URL count (module size)">{html.escape(values.get("git_size_modules_url_count", "n/a") or "n/a")} ({html.escape(values.get("git_size_modules", "n/a") or "n/a")})</td>',
+        ])
         cells.append(tree_cell)
-        rows.append(f'<tr data-repo="{html.escape(r["repo"])}">{"".join(cells)}</tr>')
+        cells.append(f'<td><a href="{html.escape(repo_dir_rel)}">folder</a></td>')
+        verdict = r["values"].get("git_verdict", "n/a") or "n/a"
+        rows.append(
+            f'<tr data-repo="{html.escape(r["repo"])}" '
+            f'data-verdict="{html.escape(verdict, quote=True)}">{"".join(cells)}</tr>'
+        )
 
     tbody = "<tbody>" + "\n        ".join(rows) + "</tbody>" if rows else (
-        f'<tbody><tr><td colspan="{len(all_cols)}">No repository result folders with git_sizes_tree.html found.</td></tr></tbody>'
+        f'<tbody><tr><td colspan="{len(DISPLAY_COLUMNS)}">No repository result folders with git_sizes_tree.html found.</td></tr></tbody>'
     )
 
     generated = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     abs_dir = os.path.abspath(base_dir)
     meta_text = (
-        f"Repositories found: {len(repos)}. "
-        f"Generated: {generated} from {html.escape(abs_dir)}"
+        f"Repositories found: {len(repos)}.<br>"
+        f"Generated: {generated}<br>"
+        f"Path: {html.escape(abs_dir)}"
     )
+    verdict_summary_groups = []
+    for group, title in (("green", "Green"), ("yellow", "Yellow"), ("red", "Red"), ("unknown", "Unknown")):
+        items = "".join(
+                f'''<label class="status-item {group}">
+                            <input type="checkbox" class="verdict-filter" value="{html.escape(verdict, quote=True)}" checked />
+              <span class="status-count">{count}</span>
+              <span class="status-label">{html.escape(verdict)}</span>
+                        </label>'''
+            for verdict, count in sorted(verdict_counts.items(), key=lambda item: (-item[1], item[0].lower()))
+            if verdict_group(verdict) == group
+        )
+        verdict_summary_groups.append(
+            f'''<section class="status-group {group}">
+                    <button type="button" class="status-group-title" title="Show {title} verdicts only">{title}</button>
+                    <div class="status-grid">{items or '<span class="status-label">None</span>'}</div>
+                  </section>'''
+        )
+    verdict_summary = "\n".join(verdict_summary_groups)
 
     return f"""<!doctype html>
 <html lang="en">
@@ -303,9 +363,23 @@ def build_html(repos: list[dict], base_dir: str, output: str) -> str:
 </head>
 <body>
   <main>
-    <div class="card">
-      <h1>Git Size Reports Overview</h1>
-      <p class="meta">{meta_text}</p>
+        <section class="overview-header">
+            <div class="card">
+                                <h1>Git Size Reports Overview</h1>
+                <p class="meta">{meta_text}</p>
+            </div>
+            <aside class="card" aria-label="Verdict status">
+                                <div class="status-heading">
+                                    <h2 class="status-title">Verdict status</h2>
+                                    <div class="status-actions">
+                                        <button type="button" id="selectAllVerdicts">Select all</button>
+                                        <button type="button" id="deselectAllVerdicts">Deselect all</button>
+                                    </div>
+                                </div>
+                                <div class="status-groups">{verdict_summary}</div>
+            </aside>
+        </section>
+        <div class="card repo-list">
       <table id="repoTable">
         {thead}
         {tbody}
@@ -317,7 +391,41 @@ def build_html(repos: list[dict], base_dir: str, output: str) -> str:
       const table = document.getElementById('repoTable');
       const headers = table.querySelectorAll('th');
       const tbody = table.querySelector('tbody');
+            const verdictFilters = document.querySelectorAll('.verdict-filter');
       let currentSort = {{ col: null, dir: 'asc' }};
+
+            function applyVerdictFilter() {{
+                const selectedVerdicts = new Set(
+                    Array.from(verdictFilters)
+                        .filter(filter => filter.checked)
+                        .map(filter => filter.value)
+                );
+                tbody.querySelectorAll('tr[data-verdict]').forEach(row => {{
+                    row.hidden = !selectedVerdicts.has(row.dataset.verdict);
+                }});
+            }}
+
+            verdictFilters.forEach(filter => {{
+                filter.addEventListener('change', applyVerdictFilter);
+            }});
+
+                        document.getElementById('selectAllVerdicts').addEventListener('click', () => {{
+                            verdictFilters.forEach(filter => {{ filter.checked = true; }});
+                            applyVerdictFilter();
+                        }});
+
+                        document.getElementById('deselectAllVerdicts').addEventListener('click', () => {{
+                            verdictFilters.forEach(filter => {{ filter.checked = false; }});
+                            applyVerdictFilter();
+                        }});
+
+                        document.querySelectorAll('.status-group-title').forEach(groupTitle => {{
+                            groupTitle.addEventListener('click', () => {{
+                                const group = groupTitle.closest('.status-group');
+                                verdictFilters.forEach(filter => {{ filter.checked = group.contains(filter); }});
+                                applyVerdictFilter();
+                            }});
+                        }});
 
       headers.forEach((th, idx) => {{
         th.classList.add('sortable');
@@ -331,7 +439,7 @@ def build_html(repos: list[dict], base_dir: str, output: str) -> str:
 
       function parseHumanSize(str) {{
         const s = str.trim();
-        const match = s.match(/^([0-9.]+)\\s*([KMGT]i?B?)?$/i);
+        const match = s.match(/^([0-9.]+)\\s*([KMGT]i?B?)?(?:\\s*\\([^)]*\\))?$/i);
         if (!match) return NaN;
         const num = parseFloat(match[1]);
         let unit = (match[2] || 'B').toUpperCase();
