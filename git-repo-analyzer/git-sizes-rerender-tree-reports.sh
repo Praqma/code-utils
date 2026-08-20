@@ -7,7 +7,8 @@ script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 renderer="$script_dir/git-object-sizes-tree-render.py"
 totals_name="bigtosmall_sorted_size_total_final.txt"
 html_name="git_sizes_tree.html"
-default_results_dir="${RESULTS_DIR:-$HOME/bitbucket/results/orig}"
+overview_html_name="overview.html"
+default_results_dir="${RESULTS_DIR:-${PWD}}"
 
 usage() {
   cat <<EOF
@@ -27,6 +28,7 @@ rerender_report() {
   output_file="$(dirname -- "$totals_file")/$html_name"
 
   GIT_ANALYST_SKIP_LOGS=1 python3 "$renderer" "$totals_file" "$output_file"
+
 }
 
 if [[ ! -f "$renderer" ]]; then
@@ -71,3 +73,8 @@ for report_dir in "$default_results_dir"/*; do
 done
 
 printf 'Rerendered: %d; skipped: %d\n' "$processed" "$skipped"
+
+if [[ $processed -gt 0 ]]; then
+  overview_file="$default_results_dir/$overview_html_name"
+  python3 "$renderer" "$overview_file" "$(dirname -- "$overview_file")/$overview_html_name"
+fi
