@@ -328,11 +328,9 @@ def build_html(repos: list[dict], base_dir: str, output: str) -> str:
     )
 
     generated = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    abs_dir = os.path.abspath(base_dir)
     meta_text = (
         f"Repositories found: {len(repos)}.<br>"
-        f"Generated: {generated}<br>"
-        f"Path: {html.escape(abs_dir)}"
+        f"Generated: {generated}"
     )
     verdict_summary_groups = []
     for group, title in (("green", "Green"), ("yellow", "Yellow"), ("red", "Red"), ("unknown", "Unknown")):
