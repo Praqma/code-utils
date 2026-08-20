@@ -154,11 +154,13 @@ echo "Analyzing git in: ${git_repo_dir} "
 echo "Saving outfiles in: ${WORKSPACE}"
 echo
 
+rm -rf "${WORKSPACE}"/*.tmp
+
 file_verify_pack="${WORKSPACE}/verify_pack.tmp" && rm -f "${file_verify_pack}"
 
-rm -f ${WORKSPACE}/bigtosmall_*.txt
-rm -f ${WORKSPACE}/bigobjects*.txt
-rm -f ${WORKSPACE}/allfileshas*.txt
+rm -f "${WORKSPACE}/bigtosmall_*.txt"
+rm -f "${WORKSPACE}/bigobjects*.txt"
+rm -f "${WORKSPACE}/allfileshas*.txt"
 
 file_tmp_allfileshas="${WORKSPACE}/allfileshas.tmp" && rm -f "${file_tmp_allfileshas}"
 
@@ -307,6 +309,11 @@ else
   printf "repack == false - skip\n\n"
 fi
 
+function run_get_lfs_files () {
+  : > "${WORKSPACE}/git_lfs_files.txt"
+  git lfs ls-files --all > "${WORKSPACE}/git_lfs_files.txt" 2>/dev/null
+}
+
 if [[ ${skip_sizes:-} == "" ]]; then
   echo "Get git repo size total"   
   git_size_total=$(du -sb "${git_dir}" | cut -f 1)
@@ -327,23 +334,168 @@ if [[ ${skip_sizes:-} == "" ]]; then
   git show HEAD:.gitmodules 2> /dev/null | git config --file - --get-regexp '^submodule\..*\.url$' > "${WORKSPACE}/git_modules_urls.txt" 2> /dev/null || echo "No .gitmodules found in HEAD"
   git_modules_count=$(wc -l < "${WORKSPACE}/git_modules_urls.txt")
 
-  echo "Get git lfs sizes"
   git_size_lfs="0"
   [[ -d "${git_dir}/lfs" ]] && {
     git_size_lfs=$(du -sb "${git_dir}/lfs" | cut -f 1)
   }
-  echo "Get git lfs files"
-  if git lfs ls-files --all > "${WORKSPACE}/git_lfs_files.txt" 2>/dev/null; then
-    git_lfs_files_count=$(wc -l < "${WORKSPACE}/git_lfs_files.txt")
-  else
-    echo "No git lfs files or error during git lfs ls-files --all - skip"
-    git_size_lfs="0"
-    rm -f "${WORKSPACE}/git_lfs_files.txt"
-  fi
-  
+
+  echo "[Background process] Running get git lfs files"
+  run_get_lfs_files & pid_lfs=$!
 else
   echo "git lfs and modules sizes: skipped"
+  git_lfs_files_count=0
 fi
+
+verify_pack_exit_code=0
+echo "[Background process] Running verify-pack for all idx files"
+run_verify_pack_all "${file_verify_pack}" & pid_verify_pack=$!
+
+printf "[Background process] Get all files in repo\n"
+git rev-list --objects --all > "${file_tmp_allfileshas}" & pid_allfileshas=$!
+
+regex_lstree_list='^([a-f0-9]{40})[[:space:]]+(.*)$'
+declare -A default_blobs_map
+declare -A branches_blobs_map
+
+function process_branch() {
+  local branch="$1"
+  local branch_id
+  local merge_base
+  local first
+  local second
+  local head_blob_line
+  local branch_blob_line_array
+
+  branch_id=$(printf '%s' "$branch" | sha256sum | cut -d ' ' -f 1)
+  local leaf_file="${WORKSPACE}/branch-worker-leaves.${branch_id}.tmp"
+  local embedded_file="${WORKSPACE}/branch-worker-embedded.${branch_id}.tmp"
+  local blobs_file="${WORKSPACE}/branch-worker-blobs.${branch_id}.tmp"
+  : > "$leaf_file"
+  : > "$embedded_file"
+  : > "$blobs_file"
+
+  branch_diff_commit_files_to_HEAD="$(printf '%-15s' "n/a")"
+  read -r first second <<< "$(git rev-list --all --children "$branch" | grep "^$(git log -1 --format=%H "$branch")")"
+  if [[ -n ${second:-} ]]; then
+    printf '%s\n' \
+      "$(git log --abbrev=12 --oneline --format="%cs : ${branch_diff_commit_files_to_HEAD} : %h : %<(50,mtrunc)%s : %D" "$branch" -1)" \
+      > "$embedded_file"
+    return 0
+  fi
+
+  merge_base=$(git merge-base "$default_branch" "$branch")
+  branch_commits_to_HEAD="$(git log --oneline --format=%H "${merge_base}..${branch}" | wc -l)"
+  branch_files_to_HEAD="$(git diff-tree -r "${merge_base}..${branch}" | cut -f 4- -d ' ' | wc -l)"
+  branch_diff_commit_files_to_HEAD="$(printf '%-15s' "$branch_commits_to_HEAD/$branch_files_to_HEAD")"
+  printf '%s\n' \
+    "$(git log --abbrev=12 --oneline --format="%cs : ${branch_diff_commit_files_to_HEAD} : %h : %<(50,mtrunc)%s : %D" "$branch" -1)" \
+    > "$leaf_file"
+
+  while read -r head_blob_line; do
+    [[ -n "$head_blob_line" ]] || continue
+    read -r -a branch_blob_line_array <<< "$head_blob_line"
+    if [[ ${branch_blob_line_array[0]} != "0000000000000000000000000000000000000000" ]]; then
+      printf '%s\t%s\n' "${branch_blob_line_array[0]}" "${branch_blob_line_array[2]}" >> "$blobs_file"
+    fi
+  done < <(git diff-tree -r "${merge_base}..${branch}" | cut -f 4- -d ' ')
+}
+
+if [[ ${invest_remote_branches} == true ]]; then
+  echo "Processing branch investigation .."
+  echo "Reading blob in default branch: ${default_branch}"
+  while read -r lstree_blob_line; do
+    if [[ "${lstree_blob_line}" =~ $regex_lstree_list ]] ; then
+        default_blob=${BASH_REMATCH[1]}
+        default_file=${BASH_REMATCH[2]}
+        default_blobs_map["${default_blob}"]="${default_file}"
+        [[ ${progress:-} == "true" ]] && printf "."
+    else
+        echo "ERROR: parsing lstree list: $lstree_blob_line"
+        echo "       using regex:         $regex_lstree_list"
+        exit 1
+    fi
+  done < <( git ls-tree -r ${default_branch} | cut -f 3- -d ' ')
+  [[ ${progress:-} == "true" ]] && echo
+  echo "Reading branches diff blobs.."
+  rm -f "${WORKSPACE}"/branch-worker-{leaves,embedded,blobs}.*.tmp
+  export -f process_branch
+  export WORKSPACE default_branch
+  branch_workers="${BRANCH_WORKERS:-$(nproc 2>/dev/null || printf 1)}"
+  # shellcheck disable=SC2046
+  printf '%s\n' \
+    $(git branch "${branch_remote_option}" | grep -v '^\*' | cut -f 3 -d ' ' | grep -v 'origin/HEAD$') \
+     | xargs -r -n 1 -P "${branch_workers}" bash -c 'process_branch "$1"' branch-worker
+
+  find "${WORKSPACE}" -maxdepth 1 -name 'branch-worker-leaves.*.tmp' -type f -print0 |
+    xargs -0 -r cat > "${file_output_branch_leaves}.tmp"
+  find "${WORKSPACE}" -maxdepth 1 -name 'branch-worker-embedded.*.tmp' -type f -print0 |
+    xargs -0 -r cat > "${file_output_branch_embedded}.tmp"
+  while IFS=$'\t' read -r branch_blob branch_file; do
+    [[ -n "$branch_blob" ]] || continue
+    branches_blobs_map["${branch_blob}"]="${branch_file}"
+  done < <(
+    find "${WORKSPACE}" -maxdepth 1 -name 'branch-worker-blobs.*.tmp' -type f -print0 |
+      xargs -0 -r cat
+  )
+  rm -rf "${WORKSPACE}"/branch-worker-{leaves,embedded,blobs}.*.tmp
+  printf "\nSortning branches lists in date order: "
+  printf "%-10s : %-15s : %-12s : %-50s : %s\n" \
+          "Updated" "commits/files" "sha1" "subject" "refs" >"${file_output_branch_leaves}"
+  sort -k1,1r "${file_output_branch_leaves}.tmp"   >> "${file_output_branch_leaves}" 2> /dev/null || echo "INFO: No leaf branches"
+
+  printf "%-10s : %-15s : %-11s : %-40s : %s\n" \
+          "Updated" "commits/files" "sha1" "subject" "refs" >"${file_output_branch_embedded}"
+  sort -k1,1r "${file_output_branch_embedded}.tmp" >> "${file_output_branch_embedded}" 2> /dev/null || echo "INFO: No embedded branches"
+  printf "Done\n"
+  
+  printf "Make tagged branches lists: "
+  printf "%-10s : %-15s : %-11s : %-40s : %s\n" \
+          "Updated" "commits/files" "sha1" "subject" "refs" >"${file_output_branch_leaves_tagged}"
+  grep " (tag: " "${file_output_branch_leaves}" >> "${file_output_branch_leaves_tagged}" 2> /dev/null || echo "INFO: No leaf branches with tags"
+  printf "%-10s : %-15s : %-11s : %-40s : %s\n" \
+          "Updated" "commits/files" "sha1" "subject" "refs" >"${file_output_branch_embedded_tagged}"
+  grep " (tag: " "${file_output_branch_embedded}" >> "${file_output_branch_embedded_tagged}" 2> /dev/null || echo "INFO: No embedded branches with tags"
+  printf "Done\n\n"
+else
+  printf "invest_remote_branches != true (%s) - skip\n" "$invest_remote_branches"
+fi
+
+printf "Waiting: git lfs ls-files --all to finish: "
+wait "$pid_lfs" || {
+  echo "ERROR: git lfs ls-files failed"
+  exit 1
+}
+printf "Done\n\n"
+git_lfs_files_count=$(wc -l < "${WORKSPACE}/git_lfs_files.txt")
+
+printf "Waiting: git verify-pack -v for all idx files to finish: "
+wait "$pid_verify_pack" || {
+  verify_pack_exit_code=$?
+  if [[ ${repack:-} != true ]]; then
+    echo "ERROR: The verify-pack failed and repack != true - fail"
+  else
+    echo "try to repack and gc --prune"
+    (
+      git reflog expire --all --expire=now
+      git repack -a -d --depth=250 --window=250 # accept to use old deltas - add "-f" option to not reuse old deltas for large repos it fails often
+      git gc --prune
+    ) || git gc --prune
+    export pack_file=$(find "${pack_dir}" -name '*.idx')
+    run_verify_pack_all "${file_verify_pack}" || {
+      verify_pack_exit_code=$?
+      echo "ERROR: verify-pack failed for all idx files after repack"
+    }
+  fi
+}
+printf "Done\n\n"
+
+
+printf "Waiting: git rev-list --objects --all to finish: "
+wait "$pid_allfileshas" || {
+  echo "ERROR: git rev-list --objects --all failed"
+  exit 1
+}
+printf "Done\n\n"
 
 declare git_size_total_mega git_size_objects_mega git_size_pack_mega git_size_lfs_mega git_size_modules_mega
 bytes_to_megabytes "${git_size_total}" git_size_total_mega
@@ -371,91 +523,6 @@ fi
 
 cat "${file_output_git_sizes}"
 
-pack_file=$(find "${pack_dir}" -name '*.idx')
-export pack_file
-echo "Run verify-pack to list all objects in idx"
-verify_pack_exit_code=0
-run_verify_pack_all "${file_verify_pack}" || {
-  verify_pack_exit_code=$?
-  if [[ ${repack:-} != true ]]; then
-    echo "ERROR: The verify-pack failed and repack != true - fail"
-  else
-    echo "try to repack and gc --prune"
-    (
-      git reflog expire --all --expire=now
-      git repack -a -d --depth=250 --window=250 # accept to use old deltas - add "-f" option to not reuse old deltas for large repos it fails often
-      git gc --prune
-    ) || git gc --prune
-    export pack_file=$(find "${pack_dir}" -name '*.idx')
-    run_verify_pack_all "${file_verify_pack}" || {
-      echo "ERROR: verify-pack failed for all idx files after repack"
-      verify_pack_exit_code=$?
-    }
-  fi
-}
-regex_lstree_list='^([a-f0-9]{40})[[:space:]]+(.*)$'
-declare -A default_blobs_map
-declare -A branches_blobs_map
-if [[ ${invest_remote_branches} == true ]]; then
-  echo "Reading blob in default branch: ${default_branch}"
-  while read -r lstree_blob_line; do
-    if [[ "${lstree_blob_line}" =~ $regex_lstree_list ]] ; then
-        default_blob=${BASH_REMATCH[1]}
-        default_file=${BASH_REMATCH[2]}
-        default_blobs_map["${default_blob}"]="${default_file}"
-        [[ ${progress:-} == "true" ]] && printf "."
-    else
-        echo "ERROR: parsing lstree list: $lstree_blob_line"
-        echo "       using regex:         $regex_lstree_list"
-        exit 1
-    fi
-  done < <( git ls-tree -r ${default_branch} | cut -f 3- -d ' ')
-  [[ ${progress:-} == "true" ]] && echo
-  echo "Reading branches diff blobs.."
-  while read -r branch; do
-    if [[ $branch == "" ]] ; then
-      echo "branch variable is empty - skip"
-      continue
-    fi
-    # shellcheck disable=SC2034
-    # shellcheck disable=SC2046
-    read -r first second <<< "$(git rev-list --all --children $branch | grep ^$(git log -1 --format=%H $branch))"
-    if [[ ${second:-} == "" ]] ; then
-      printf "LEAF: %s : ( #commits/files: %s/%s ) : %s\n" \
-                                "${branch}" \
-                                "$( git log --oneline --format=%H $(git merge-base ${default_branch} ${branch} )..${branch} | wc -l )" \
-                                "$( git diff-tree -r $(git merge-base ${default_branch} ${branch} )..${branch} | cut -f 4- -d ' ' | wc -l )" \
-                                "$( git log --oneline --format='%h,%cs%d : %s' ${branch} -1 )" \
-                              | tee -a "${file_output_branch_leaves}"
-    else
-      printf "EMBEDDED: %s - skip : %s\n\n" "${branch}" "$( git log --oneline --format='%h,%cs%d : %s' ${branch} -1  )" | tee -a "${file_output_branch_embedded}"
-      continue
-    fi
-    # shellcheck disable=SC2046
-    while read -r head_blob_line; do
-      branch_blob_line_array=($head_blob_line)
-      if [[ ${branch_blob_line_array[0]} != "0000000000000000000000000000000000000000" ]]; then 
-          branch_blob=${branch_blob_line_array[0]}
-          branch_file=${branch_blob_line_array[2]}
-          branches_blobs_map["${branch_blob}"]="${branch_file}"
-          [[ ${progress:-} == "true" ]] && printf "."
-      fi
-    done < <( git diff-tree -r $(git merge-base ${default_branch} ${branch} )..${branch} | cut -f 4- -d ' ')
-    printf "\n"
-  done < <( git branch ${branch_remote_option} | grep -v '^*' | cut -f 3 -d ' ' | grep -v 'origin/HEAD$')
-  printf "\nMake tagged branches lists: "
-  grep " (tag: " "${file_output_branch_leaves}" > "${file_output_branch_leaves_tagged}" 2> /dev/null || echo "INFO: No leaf branches with tags"
-  grep " (tag: " "${file_output_branch_embedded}" > "${file_output_branch_embedded_tagged}" 2> /dev/null || echo "INFO: No embedded branches with tags"
-  printf "Done\n\n"
-else
-  printf "invest_remote_branches != true (%s) - skip\n" "$invest_remote_branches"
-fi
-
-echo
-
-git rev-list --objects --all  > "${file_tmp_allfileshas}"
-
-printf "\n"
 touch "${file_output_sorted_size_files}"
 echo "Investigate blobs that are directly stored in idx file: ${pack_file}"
 if [[ ! $(grep -E "^[a-f0-9]{40}[[:space:]]blob[[:space:]]+[0-9]+[[:space:]][0-9]+[[:space:]][0-9]+$" "${file_verify_pack}" | awk -F" " '{print $1,$2,$3,$4,$5}' > "${file_tmp_bigobjects}") ]]; then
@@ -470,8 +537,6 @@ fi
 
 echo "Generate file sorted list:"
 touch "${WORKSPACE}/bigtosmall_errors.txt"
-
-regex_idx_list='^([a-f0-9]{40}) ([0-9]+) (.*)$'
 
 file_tmp_default_blobs_map="${WORKSPACE}/default_blobs_map.tmp" && rm -f "${file_tmp_default_blobs_map}" && touch "${file_tmp_default_blobs_map}"
 for blob in "${!default_blobs_map[@]}"; do
@@ -545,7 +610,7 @@ printf "\n\n"
 touch "${file_output_sorted_size_files_revisions}"
 echo "Investigate blobs that are packed in revisions in idx file: ${pack_file}"
 if [[ ! $(grep -E "^[a-f0-9]{40}[[:space:]]blob[[:space:]]+[0-9]+[[:space:]][0-9]+[[:space:]][0-9]+[[:space:]][0-9]+[[:space:]][a-f0-9]{40}$" "${file_verify_pack}" | awk -F" " '{print $1,$2,$3,$4,$5}' > "${file_tmp_bigobjects_revisions}") ]]; then
-  printf "Amount of objects: %s\n" $(wc -l < "${file_tmp_bigobjects_revisions}")
+  printf "Amount of objects: %s\n" "$(wc -l < "${file_tmp_bigobjects_revisions}")"
   join <(sort "${file_tmp_bigobjects_revisions}") <(sort "${file_tmp_allfileshas}") | sort -k 3 -n -r | cut -f 1,3,6- -d ' '  > "${file_tmp_bigtosmall_join_revisions}"
   amount_total_unique=$(awk '{ $1=""; $2=""; sub(/^  */, "", $0); if (!seen[$0]++) count++ } END { print count+0 }' "${file_tmp_bigtosmall_join_revisions}")
   printf "Amount of unique <path>/<file>: %s\n" "${amount_total_unique}"
