@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import concurrent.futures
+import html
 import json
 import os
 import re
@@ -12,14 +13,20 @@ MIN_LOG_SIZE_BYTES = 1 * 1024 * 1024
 
 
 def to_list(node):
-    children = sorted(node['children'].values(), key=lambda x: -x['size'])
+    children = [to_list(child) for child in node['children'].values()]
+    largest_file_size = node['size'] if not node['is_dir'] else max(
+        (child['m'] for child in children), default=0
+    )
     return {
         'n': node['name'],
         's': node['size'],
+        'm': largest_file_size,
+        'r': node['max_record_size'],
+      'f': node['max_final_file_size'],
         'p': node['prefix'],
         'c': node['count'],
         'd': node['is_dir'],
-        'ch': [to_list(c) for c in children],
+        'ch': children,
     }
 
 
@@ -27,6 +34,8 @@ def build_tree(input_file):
     root = {
         'name': '(root)',
         'size': 0,
+        'max_record_size': 0,
+        'max_final_file_size': 0,
         'children': {},
         'prefix': '',
         'count': 0,
@@ -58,12 +67,17 @@ def build_tree(input_file):
                     node['children'][comp] = {
                         'name': comp,
                         'size': 0,
+                        'max_record_size': 0,
+                        'max_final_file_size': 0,
                         'children': {},
                         'prefix': '',
                         'count': 0,
                         'is_dir': True,
                     }
                 node['children'][comp]['size'] += size
+                node['children'][comp]['max_record_size'] = max(
+                  node['children'][comp]['max_record_size'], size
+                )
                 node = node['children'][comp]
 
             fname = components[-1]
@@ -71,6 +85,8 @@ def build_tree(input_file):
                 node['children'][fname] = {
                     'name': fname,
                     'size': size,
+                    'max_record_size': size,
+                    'max_final_file_size': 0,
                     'children': {},
                     'prefix': prefix,
                     'count': count,
@@ -78,10 +94,50 @@ def build_tree(input_file):
                 }
             else:
                 node['children'][fname]['size'] += size
+                node['children'][fname]['max_record_size'] = max(
+                    node['children'][fname]['max_record_size'], size
+              )
                 node['children'][fname]['prefix'] = prefix
             root['size'] += size
+            root['max_record_size'] = max(root['max_record_size'], size)
 
     return root
+
+
+def apply_final_file_sizes(root, input_file):
+    """Add the largest current file size beneath each tree node when available."""
+    files_final = input_file.replace(
+        'bigtosmall_sorted_size_total_final.txt',
+        'bigtosmall_sorted_size_files_final.txt',
+    )
+    if not os.path.isfile(files_final):
+        return
+
+    line_re = re.compile(r'^(\d+)\s+(.+)$')
+    with open(files_final) as file_handle:
+        for raw_line in file_handle:
+            match = line_re.match(raw_line.strip())
+            if not match:
+                continue
+            size = int(match.group(1))
+            components = match.group(2).split('/')
+            node = root
+            node['max_final_file_size'] = max(node['max_final_file_size'], size)
+            for component in components:
+                parent = node
+                node = parent['children'].get(component)
+                if node is None:
+                    node = next(
+                        (
+                            child
+                            for name, child in parent['children'].items()
+                            if strip_pack_tag(name) == component
+                        ),
+                        None,
+                    )
+                if node is None:
+                    break
+                node['max_final_file_size'] = max(node['max_final_file_size'], size)
 
 
 def strip_pack_tag(path):
@@ -118,7 +174,13 @@ def collect_unique_paths(input_file, min_size_bytes=0):
 
 def collect_git_logs(repo_path, paths):
     if os.environ.get('GIT_ANALYST_SKIP_LOGS', '').lower() in ('1', 'true', 'yes'):
-        return {}
+        return {
+            rel_path: {
+                'cmd': 'git log --all --full-history --summary --oneline -- ' + rel_path,
+                'out': '(git log execution skipped during rendering)',
+            }
+            for rel_path in paths
+        }
 
     # Parallelize independent git-log calls to reduce total wall-clock time.
     cpu_count = os.cpu_count() or 4
@@ -185,19 +247,34 @@ def load_extension_verdicts(input_file):
 def load_report_metadata(input_file):
     metadata_file = os.path.join(os.path.dirname(os.path.abspath(input_file)), 'git_sizes.txt')
     metadata = {}
-    if not os.path.isfile(metadata_file):
-      return metadata
+    report_dir = os.path.dirname(os.path.abspath(input_file))
 
-    key_re = re.compile(r"^(git_size_total|git_size_modules|git_size_lfs|git_size_lfs_files_count|git_size_modules_url_count)='([^']*)'$")
-    with open(metadata_file) as f:
-        for raw in f:
-            match = key_re.match(raw.strip())
-            if match:
-                metadata[match.group(1)] = match.group(2)
+    key_re = re.compile(r"^(git_size_total|git_size_largest|git_size_modules|git_size_lfs|git_size_lfs_files_count|git_size_modules_url_count)='([^']*)'$")
+    if os.path.isfile(metadata_file):
+        with open(metadata_file) as f:
+            for raw in f:
+                match = key_re.match(raw.strip())
+                if match:
+                    metadata[match.group(1)] = match.group(2)
+
+    branch_counts = {}
+    for branch_file_name in ('branches_leaves.txt', 'branches_embedded.txt', 'branches_leaves_tagged.txt', 'branches_embedded_tagged.txt'):
+        branch_file = os.path.join(report_dir, branch_file_name)
+        branch_key = branch_file_name.removesuffix('.txt')
+        if not os.path.isfile(branch_file):
+            branch_counts[branch_key] = 0
+            continue
+        with open(branch_file) as branch_handle:
+          line_count = sum(1 for line in branch_handle if line.strip())
+        branch_counts[branch_key] = max(0, line_count - 1)
+    metadata['git_branch_leaves_count'] = str(branch_counts.get('branches_leaves', 0))
+    metadata['git_branch_embedded_count'] = str(branch_counts.get('branches_embedded', 0))
+    metadata['git_branch_leaves_tagged_count'] = str(branch_counts.get('branches_leaves_tagged', 0))
+    metadata['git_branch_embedded_tagged_count'] = str(branch_counts.get('branches_embedded_tagged', 0))
     return metadata
 
 
-def render_html(repo_name, repo_link, tree_json, logs_json, ext_verdicts_json, metadata_json):
+def render_html(repo_name, repo_link, parent_link, current_repo_link, tree_json, logs_json, ext_verdicts_json, metadata_json):
     html_template = r'''<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="UTF-8"><title>Git Object Sizes - __REPO__</title>
@@ -235,14 +312,18 @@ h1 a{color:#8ab4ff;text-decoration:none}
 #repo-stats{display:grid;grid-template-columns:minmax(0,1fr);gap:6px;border:1px solid #39415f;background:#1f243b;border-radius:10px;padding:10px;height:100%;min-height:0}
 .repo-stat{display:flex;justify-content:space-between;gap:10px;min-width:0;color:#aab2d8;font-size:.84em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .repo-stat strong{color:#e5e9ff;font-weight:600}
-#ext-table-head-wrap{position:sticky;top:0;z-index:2;background:#232944;border:1px solid #39415f;border-radius:8px 8px 0 0;overflow:hidden}
+#ext-table-head-wrap{position:sticky;top:0;z-index:2;background:#232944;border:1px solid #39415f;border-radius:8px 8px 0 0;overflow:hidden;padding-right:14px}
 #ext-table-wrap{min-height:0;overflow-y:auto;overflow-x:hidden;border:1px solid #39415f;border-top:none;border-radius:0 0 8px 8px;scrollbar-gutter:stable}
-.ext-table{width:100%;border-collapse:collapse;font-size:.84em;table-layout:auto}
+.ext-table{width:100%;border-collapse:collapse;font-size:.84em;table-layout:fixed}
 .ext-table th,.ext-table td{min-width:0;overflow:hidden;text-overflow:ellipsis;padding:6px 8px}
 .ext-table th{background:#232944;color:#c9cedf;text-align:left;border-bottom:1px solid #39415f;white-space:normal;line-height:1.15}
 .ext-table td{border-bottom:1px solid #2a2f48;color:#dfe4ff;white-space:nowrap}
 .ext-table td:nth-child(2),.ext-table td:nth-child(3){text-align:right;color:#aab2d8}
 .ext-table td:nth-child(4){font-weight:600;color:#c9cedf}
+.ext-table th:nth-child(1),.ext-table td:nth-child(1){width:32%}
+.ext-table th:nth-child(2),.ext-table td:nth-child(2){width:23%}
+.ext-table th:nth-child(3),.ext-table td:nth-child(3){width:15%}
+.ext-table th:nth-child(4),.ext-table td:nth-child(4){width:30%}
 .ext-table tbody tr{cursor:pointer}
 .ext-table tbody tr:hover td{background:#2a2a3e}
 .ext-table tr:last-child td{border-bottom:none}
@@ -251,8 +332,17 @@ h1 a{color:#8ab4ff;text-decoration:none}
 .ctx-hint{font-size:.82em;color:#8e97bc}
 button{background:#232944;color:#e5e9ff;border:1px solid #39415f;padding:8px 10px;border-radius:8px;cursor:pointer;font-size:.95em}
 button:hover{background:#45475a}
-#tree-panel{display:grid;grid-template-rows:auto 1fr;min-height:0;border:1px solid #39415f;border-radius:10px;overflow-y:auto;overflow-x:hidden;background:#151a2d}
+#main{display:grid!important;grid-template-rows:auto minmax(0,1fr);border:1px solid #39415f;border-radius:10px;overflow:hidden;background:#151a2d;min-height:0}
+#tree-panel{display:grid;grid-template-rows:auto 1fr;min-height:0;overflow-y:auto;overflow-x:hidden;background:#151a2d}
 #tree{font-size:.94em;overflow-x:hidden;overflow-y:visible;min-height:0}
+.view-tabs{display:flex;flex-wrap:nowrap;gap:6px;align-items:center;padding:8px 10px;background:#1a1f33;border-bottom:1px solid #39415f;overflow-x:auto;overflow-y:hidden;scrollbar-gutter:stable}
+.view-tab{padding:6px 8px;font-size:.85em;white-space:nowrap;flex:0 0 auto}
+.view-tab[aria-selected="true"]{background:#8ab4ff;color:#0f1220;border-color:#8ab4ff}
+#file-panel{display:none;grid-template-rows:auto 1fr;min-height:0;overflow:hidden;background:#151a2d}
+#file-panel.show{display:grid}
+#file-panel-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;background:#1a1f33;border-bottom:1px solid #39415f;font-size:.9em}
+#file-panel-head a{color:#8ab4ff;text-decoration:none}
+#file-text{margin:0;padding:10px;min-height:0;overflow:auto;white-space:pre;color:#e5e9ff;background:#101629;font:12px Consolas,monospace;line-height:1.35}
 .hdr,.row{display:grid;grid-template-columns:minmax(0,1fr) 40px minmax(24px,.8fr) minmax(13px,.225fr) minmax(16px,.25fr);column-gap:5px;align-items:center}
 .hdr{position:sticky;top:0;z-index:3;padding:6px 8px;font-size:.9em;color:#aab2d8;border-bottom:1px solid #39415f;background:#1a1f33;user-select:none}
 .hdr .h-name{min-width:0}
@@ -320,12 +410,13 @@ button:hover{background:#45475a}
 </head>
 <body>
 <div id="main-top">
-  <h1>Git Object Sizes &mdash; <a href="__REPO_LINK__" title="Raw data and more details">__REPO__</a></h1>
+  <h1>Git Object Sizes &mdash; __PARENT_LINK____CURRENT_REPO_LINK__</h1>
 </div>
 <div id="action-row">
   <div id="repo-stats">
-    <div class="repo-stat">Total size across all revisions: <strong id="stat-total"></strong></div>
-    <div class="repo-stat">Unique files tracked: <strong id="stat-files"></strong></div>
+    <div class="repo-stat" title="Repository checkout size / visible tree size / total size across all revisions">Repository sizes: <strong id="stat-total"></strong></div>
+    <div class="repo-stat" title="Largest current single file / visible files after filters / total unique files tracked">Unique files tracked: <strong id="stat-files"></strong></div>
+    <div class="repo-stat" title="Leaf branches / embedded branches / tagged leaf branches / tagged embedded branches">Branches: <strong id="stat-branches"></strong></div>
     <div class="repo-stat">Submodules(urls in HEAD): <strong id="stat-modules"></strong></div>
     <div class="repo-stat">LFS: <strong id="stat-lfs"></strong></div>
     <div class="repo-stat">Extensions (incl [no_ext]): <strong id="stat-extensions"></strong></div>
@@ -375,6 +466,19 @@ button:hover{background:#45475a}
     </div>
   </aside>
   <main id="main">
+    <div class="view-tabs" role="tablist" aria-label="Path/file report views">
+      <button class="view-tab" type="button" role="tab" aria-selected="true" data-view="tree">Folder<br>tree</button>
+      <button class="view-tab" type="button" role="tab" aria-selected="false" data-view="files" data-src="bigtosmall_sorted_size_files_final.txt">Largest<br>single files</button>
+      <button class="view-tab" type="button" role="tab" aria-selected="false" data-view="total" data-src="bigtosmall_sorted_size_total_final.txt">Largest<br>Revisions</button>
+      <button class="view-tab" type="button" role="tab" aria-selected="false" data-view="largest-extension" data-src="bigtosmall_largest_per_extension.txt">Largest<br>per extension</button>
+      <button class="view-tab" type="button" role="tab" aria-selected="false" data-view="leaves" data-src="branches_leaves.txt">Branches<br>leaves</button>
+      <button class="view-tab" type="button" role="tab" aria-selected="false" data-view="leaves-tagged" data-src="branches_leaves_tagged.txt">Branches<br>leaves(tagged)</button>
+      <button class="view-tab" type="button" role="tab" aria-selected="false" data-view="embedded" data-src="branches_embedded.txt">Branches<br>embedded</button>
+      <button class="view-tab" type="button" role="tab" aria-selected="false" data-view="embedded-tagged" data-src="branches_embedded_tagged.txt">Branches<br>embedded(tagged)</button>
+      <button class="view-tab" type="button" role="tab" aria-selected="false" data-view="lfs-files" data-src="git_lfs_files.txt">LFS<br>files</button>
+      <button class="view-tab" type="button" role="tab" aria-selected="false" data-view="git-sizer" data-src="git_sizer_verbose.txt">Git<br>sizer</button>
+      <button class="view-tab" type="button" role="tab" aria-selected="false" data-view="module-urls" data-src="git_modules_urls.txt">Module<br>URLs</button>
+    </div>
     <div id="tree-panel">
       <div class="hdr">
         <div class="h-name">Name</div>
@@ -385,6 +489,10 @@ button:hover{background:#45475a}
       </div>
       <div id="tree"></div>
     </div>
+    <section id="file-panel" aria-label="Sorted report list">
+      <div id="file-panel-head"><span id="file-panel-title"></span><a id="file-panel-link" target="_blank">Open source file</a></div>
+      <pre id="file-text"></pre>
+    </section>
   </main>
  </div>
 <div id="log-modal" role="dialog" aria-modal="true" aria-label="Git log output">
@@ -408,6 +516,7 @@ let pathRegex = null;
 let showH = true;
 let showB = true;
 let showHist = true;
+let sortMode = 'total';
 let treeDepth = 0;
 let totalFiles = 0;
 let renderTimer = null;
@@ -464,11 +573,22 @@ function filterTree(node, parentPath) {
 
   const children = (node.ch || []).map(c => filterTree(c, fullPath)).filter(Boolean);
   if (children.length > 0) {
-    copy.ch = children;
+    copy.ch = sortChildren(children);
     copy.dp = folderPrefixFromChildren(children);
     return copy;
   }
   return null;
+}
+
+function sortChildren(children) {
+  const sortValue = node => {
+    if (sortMode === 'total') return node.s || 0;
+    if (sortMode === 'final') return node.f || 0;
+    return node.m || 0;
+  };
+  return children.slice().sort((left, right) =>
+    sortValue(right) - sortValue(left) || left.n.localeCompare(right.n)
+  );
 }
 
 function countVisibleFiles(node) {
@@ -488,8 +608,9 @@ function sumVisibleFileSize(node) {
 }
 
 function updateFilteredStats(totalVisible, totalVisibleSize) {
-  document.getElementById('stat-total').textContent = fmtSz(totalVisibleSize) + ' / ' + fmtSz(total);
-  document.getElementById('stat-files').textContent = totalVisible + ' / ' + totalFiles;
+  document.getElementById('stat-total').textContent =
+    (REPORT_META.git_size_total || 'n/a') + ' / ' + fmtSz(totalVisibleSize) + ' / ' + fmtSz(total);
+  document.getElementById('stat-files').textContent = (REPORT_META.git_size_largest || 'n/a') + ' / ' + totalVisible + ' / ' + totalFiles;
 }
 
 function fileExtFromPath(path) {
@@ -869,7 +990,13 @@ function scheduleRender(debounceMs) {
 (function () {
   function countFiles(n) { if (!n.d) totalFiles++; if (n.ch) n.ch.forEach(countFiles); }
   countFiles(DATA);
-  document.getElementById('stat-total').textContent = fmtSz(total);
+  document.getElementById('stat-total').textContent =
+    (REPORT_META.git_size_total || 'n/a') + ' / ' + fmtSz(total) + ' / ' + fmtSz(total);
+  document.getElementById('stat-branches').textContent =
+    (REPORT_META.git_branch_leaves_count || '0') + ' / ' +
+    (REPORT_META.git_branch_embedded_count || '0') + ' / ' +
+    (REPORT_META.git_branch_leaves_tagged_count || '0') + ' / ' +
+    (REPORT_META.git_branch_embedded_tagged_count || '0');
   document.getElementById('stat-modules').textContent =
     (REPORT_META.git_size_modules_url_count || '0') + ' ( ' + (REPORT_META.git_size_modules || '0M') + ' )';
   document.getElementById('stat-lfs').textContent =
@@ -901,6 +1028,28 @@ function scheduleRender(debounceMs) {
   typeHist.addEventListener('change', () => {
     syncTypeFilters();
     scheduleRender(0);
+  });
+
+  document.querySelectorAll('.view-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      const showTree = tab.dataset.view === 'tree';
+      document.querySelectorAll('.view-tab').forEach(button => {
+        button.setAttribute('aria-selected', String(button === tab));
+      });
+      document.getElementById('tree-panel').style.display = showTree ? '' : 'none';
+      const filePanel = document.getElementById('file-panel');
+      filePanel.classList.toggle('show', !showTree);
+      if (!showTree) {
+        document.getElementById('file-panel-title').textContent = tab.textContent;
+        document.getElementById('file-panel-link').href = tab.dataset.src;
+        const fileText = document.getElementById('file-text');
+        fileText.textContent = 'Loading ' + tab.dataset.src + '...';
+        fetch(tab.dataset.src)
+          .then(response => response.ok ? response.text() : Promise.reject(new Error(response.status + ' ' + response.statusText)))
+          .then(text => { fileText.textContent = text; })
+          .catch(error => { fileText.textContent = 'Unable to load ' + tab.dataset.src + ': ' + error.message; });
+      }
+    });
   });
 
   typeReset.addEventListener('click', () => {
@@ -953,7 +1102,7 @@ function scheduleRender(debounceMs) {
 </body>
 </html>'''
 
-    return html_template.replace('__REPO__', repo_name).replace('__REPO_LINK__', repo_link).replace('__DATA__', tree_json).replace('__LOGS__', logs_json).replace('__EXT_VERDICTS__', ext_verdicts_json).replace('__META__', metadata_json)
+    return html_template.replace('__REPO__', repo_name).replace('__REPO_LINK__', repo_link).replace('__PARENT_LINK__', parent_link).replace('__CURRENT_REPO_LINK__', current_repo_link).replace('__DATA__', tree_json).replace('__LOGS__', logs_json).replace('__EXT_VERDICTS__', ext_verdicts_json).replace('__META__', metadata_json)
 
 
 def main():
@@ -971,6 +1120,8 @@ def main():
       print('Error: file not found: ' + input_file, file=sys.stderr)
       return 1
 
+    apply_final_file_sizes(root, input_file)
+
     tree_json = json.dumps(to_list(root))
     paths = collect_unique_paths(input_file, MIN_LOG_SIZE_BYTES)
     logs = collect_git_logs(repo_path, paths)
@@ -984,10 +1135,19 @@ def main():
     metadata_json = json.dumps(metadata)
     output_dir = os.path.dirname(os.path.abspath(output_file))
     repo_link = './'
-    html = render_html(repo_name, repo_link, tree_json, logs_json, ext_verdicts_json, metadata_json)
+    parent_link = ''
+    if os.path.basename(output_file) == 'git_sizes_tree.html':
+      for parent_name in ('overview.html', 'index.html'):
+        parent_file = os.path.join(output_dir, os.pardir, parent_name)
+        if os.path.isfile(parent_file):
+          parent_href = os.path.relpath(parent_file, output_dir).replace(os.sep, '/')
+          parent_link = '<a href="' + html.escape(parent_href, quote=True) + '" title="Open parent report">..</a> / '
+          break
+    current_repo_link = '<a href="' + html.escape(repo_link, quote=True) + '" title="Raw data and more details">' + html.escape(repo_name) + '</a>'
+    rendered_html = render_html(repo_name, repo_link, parent_link, current_repo_link, tree_json, logs_json, ext_verdicts_json, metadata_json)
 
     with open(output_file, 'w') as f:
-        f.write(html)
+      f.write(rendered_html)
 
     print('Saved: ' + output_file)
     return 0
