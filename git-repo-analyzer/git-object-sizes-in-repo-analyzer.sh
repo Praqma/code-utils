@@ -190,6 +190,9 @@ file_output_sorted_size_extensions="${WORKSPACE}/bigtosmall_sorted_size_extensio
 file_output_largest_per_extension="${WORKSPACE}/bigtosmall_largest_per_extension.txt" && rm -rf "${file_output_largest_per_extension}"
 file_output_largest_no_extension="${WORKSPACE}/bigtosmall_largest_no_extension.txt" && rm -rf "${file_output_largest_no_extension}"
 file_output_git_size_extensions="${WORKSPACE}/git_size_extensions.txt" && rm -rf "${file_output_git_size_extensions}"
+file_output_git_tags="${WORKSPACE}/git_tags.txt" && rm -f "${file_output_git_tags}"
+git for-each-ref --format='%(refname:strip=2)' refs/tags > "${file_output_git_tags}"
+git_tags_count=$(wc -l < "${file_output_git_tags}")
 
 file_output_git_sizes="${WORKSPACE}/git_sizes.txt" && rm -rf "${file_output_git_sizes}"
 
@@ -220,6 +223,7 @@ function is_repo_empty_and_report_n_exit () {
       echo "git_size_pack='0'"
       echo "git_size_lfs='0'"
       echo "git_size_modules='0'"
+      echo "git_tags_count='${git_tags_count}'"
       echo "git_verdict='empty'"
     ) > "${file_output_git_sizes}"
     exit 0;
@@ -346,6 +350,8 @@ else
   git_lfs_files_count=0
 fi
 
+
+
 verify_pack_exit_code=0
 echo "[Background process] Running verify-pack for all idx files"
 run_verify_pack_all "${file_verify_pack}" & pid_verify_pack=$!
@@ -421,10 +427,8 @@ if [[ ${invest_remote_branches} == true ]]; then
   export -f process_branch
   export WORKSPACE default_branch
   branch_workers="${BRANCH_WORKERS:-$(nproc 2>/dev/null || printf 1)}"
-  # shellcheck disable=SC2046
-  printf '%s\n' \
-    $(git branch "${branch_remote_option}" | grep -v '^\*' | cut -f 3 -d ' ' | grep -v 'origin/HEAD$') \
-     | xargs -r -n 1 -P "${branch_workers}" bash -c 'process_branch "$1"' branch-worker
+  git branch "${branch_remote_option}" | grep -v '^\*' | cut -f 3 -d ' ' | grep -v 'origin/HEAD$' | tr '\n' '\0' \
+     | xargs -0 -r -n 1 -P "${branch_workers}" bash -c 'process_branch "$1"' branch-worker
 
   find "${WORKSPACE}" -maxdepth 1 -name 'branch-worker-leaves.*.tmp' -type f -print0 |
     xargs -0 -r cat > "${file_output_branch_leaves}.tmp"
@@ -443,16 +447,16 @@ if [[ ${invest_remote_branches} == true ]]; then
           "Updated" "commits/files" "sha1" "subject" "refs" >"${file_output_branch_leaves}"
   sort -k1,1r "${file_output_branch_leaves}.tmp"   >> "${file_output_branch_leaves}" 2> /dev/null || echo "INFO: No leaf branches"
 
-  printf "%-10s : %-15s : %-11s : %-40s : %s\n" \
+  printf "%-10s : %-15s : %-12s : %-50s : %s\n" \
           "Updated" "commits/files" "sha1" "subject" "refs" >"${file_output_branch_embedded}"
   sort -k1,1r "${file_output_branch_embedded}.tmp" >> "${file_output_branch_embedded}" 2> /dev/null || echo "INFO: No embedded branches"
   printf "Done\n"
   
   printf "Make tagged branches lists: "
-  printf "%-10s : %-15s : %-11s : %-40s : %s\n" \
+  printf "%-10s : %-15s : %-12s : %-50s : %s\n" \
           "Updated" "commits/files" "sha1" "subject" "refs" >"${file_output_branch_leaves_tagged}"
   grep " (tag: " "${file_output_branch_leaves}" >> "${file_output_branch_leaves_tagged}" 2> /dev/null || echo "INFO: No leaf branches with tags"
-  printf "%-10s : %-15s : %-11s : %-40s : %s\n" \
+  printf "%-10s : %-15s : %-12s : %-50s : %s\n" \
           "Updated" "commits/files" "sha1" "subject" "refs" >"${file_output_branch_embedded_tagged}"
   grep " (tag: " "${file_output_branch_embedded}" >> "${file_output_branch_embedded_tagged}" 2> /dev/null || echo "INFO: No embedded branches with tags"
   printf "Done\n\n"
@@ -489,6 +493,7 @@ wait "$pid_verify_pack" || {
 }
 printf "Done\n\n"
 
+git_size_objects_count=$(grep -Ec '^[0-9a-f]{40} (commit|tree|blob|tag) ' "${file_verify_pack}" || true)
 
 printf "Waiting: git rev-list --objects --all to finish: "
 wait "$pid_allfileshas" || {
@@ -507,11 +512,13 @@ bytes_to_megabytes "${git_size_modules}" git_size_modules_mega
 cat <<EOF > "${file_output_git_sizes}"
 git_size_total='${git_size_total_mega}'
 git_size_objects='${git_size_objects_mega}'
+git_size_objects_count='${git_size_objects_count}'
 git_size_pack='${git_size_pack_mega}'
 git_size_lfs='${git_size_lfs_mega}'
 git_size_lfs_files_count='${git_lfs_files_count:-0}'
 git_size_modules='${git_size_modules_mega}'
 git_size_modules_url_count='${git_modules_count:-0}'
+git_tags_count='${git_tags_count}'
 EOF
 
 git_size_objects_verdict="ok"
