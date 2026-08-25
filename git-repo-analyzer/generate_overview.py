@@ -107,6 +107,57 @@ def read_git_sizes(path: str) -> dict[str, str]:
     return values
 
 
+def count_unique_report_objects(repo_dir: str) -> str:
+    """Use the aggregate totals report as a fallback for older git_sizes files."""
+    totals_path = os.path.join(repo_dir, "bigtosmall_sorted_size_total_final.txt")
+    try:
+        with open(totals_path, encoding="utf-8") as fh:
+            return str(sum(1 for line in fh if line.strip()))
+    except OSError:
+        return "n/a"
+
+
+def latest_branch_commit(repo_dir: str) -> str:
+    """Return the newest commit date found in the branch report files."""
+    latest = None
+    for file_name in (
+        "branches_leaves.txt",
+        "branches_embedded.txt",
+        "branches_leaves_tagged.txt",
+        "branches_embedded_tagged.txt",
+    ):
+        path = os.path.join(repo_dir, file_name)
+        try:
+            with open(path, encoding="utf-8") as fh:
+                for raw in fh:
+                    match = re.match(r"^(\d{4}-\d{2}-\d{2})\b", raw.strip())
+                    if match and (latest is None or match.group(1) > latest):
+                        latest = match.group(1)
+        except OSError:
+            continue
+    return latest or "n/a"
+
+
+def branch_and_tag_counts(repo_dir: str) -> tuple[str, str]:
+    """Return total leaf/embedded branches and the number of tags."""
+    branch_count = 0
+    for file_name in ("branches_leaves.txt", "branches_embedded.txt"):
+        path = os.path.join(repo_dir, file_name)
+        try:
+            with open(path, encoding="utf-8") as fh:
+                branch_count += max(0, sum(1 for line in fh if line.strip()) - 1)
+        except OSError:
+            continue
+
+    tags_path = os.path.join(repo_dir, "git_tags.txt")
+    try:
+        with open(tags_path, encoding="utf-8") as fh:
+            tag_count = sum(1 for line in fh if line.strip())
+    except OSError:
+        tag_count = 0
+    return str(branch_count), str(tag_count)
+
+
 def scan_repos(base_dir: str) -> list[dict]:
     """Return a sorted list of repo dicts for every subfolder that has git_sizes_tree.html."""
     repos = []
@@ -123,6 +174,12 @@ def scan_repos(base_dir: str) -> list[dict]:
             tree_path = "n/a"
         sizes_path = os.path.join(entry.path, "git_sizes.txt")
         values = read_git_sizes(sizes_path) if os.path.isfile(sizes_path) else {}
+        if not values.get("git_size_objects_count"):
+            values["git_size_objects_count"] = count_unique_report_objects(entry.path)
+        values["git_latest_branch_commit"] = latest_branch_commit(entry.path)
+        branch_count, tag_count = branch_and_tag_counts(entry.path)
+        values["git_branch_total_count"] = branch_count
+        values["git_tags_count"] = tag_count
         repos.append(
             {
                 "repo": entry.name,
@@ -243,9 +300,17 @@ STYLE = """
     .status-item.yellow { color: #fbbf24; }
     .status-item.red { color: #ef4444; }
     .status-item.unknown { color: #fff; }
+    .table-filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding: 12px; border-bottom: 1px solid var(--line); }
+    .table-filter { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 6px; }
+    .table-filter label { color: var(--muted); font-size: 0.85rem; white-space: nowrap; }
+    .table-filter input { min-width: 0; padding: 7px 9px; border: 1px solid var(--line); border-radius: 4px; background: #111a32; color: var(--text); font: inherit; }
+    .table-filter input::placeholder { color: #8e97bc; }
+    .table-filter button { padding: 5px 8px; border: 1px solid var(--line); border-radius: 4px; background: #111a32; color: var(--text); cursor: pointer; }
+    .table-filter button:hover { background: #1a2440; }
     @media (max-width: 720px) { main { padding: 16px; } .overview-header { grid-template-columns: 1fr; } .status-groups { grid-template-columns: 1fr; } }
+    @media (max-width: 720px) { .table-filters { grid-template-columns: 1fr; } }
     table { width: 100%; border-collapse: collapse; }
-    #repoTable { min-width: 1100px; }
+    #repoTable { min-width: 1250px; }
     th, td { padding: 10px 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
     th { background: #111a32; color: #cfe0ff; cursor: pointer; user-select: none; }
     #repoTable th { position: sticky; top: 0; z-index: 1; }
@@ -266,8 +331,8 @@ STYLE = """
 """
 
 DISPLAY_COLUMNS = [
-    "Repository", "verdict", "extensions", "objects",
-    "LFS", "modules", "Tree Report", "Details",
+    "Repository", "verdict", "extensions", "Repo size", "Objects", "Largest object",
+    "LFS", "modules", "Branches / tags", "Latest branch commit", "Tree Report", "Details",
 ]
 
 
@@ -279,9 +344,11 @@ def build_html(repos: list[dict], base_dir: str, output: str) -> str:
 
     # --- thead ---
     header_titles = {
-        "objects": "Total object size (largest object size)",
-        "LFS": "LFS file count (LFS size)",
-        "modules": "Module URL count (module size)",
+        "Repo size": "Total Git repository size",
+        "Objects": "Object count",
+        "Largest object": "Largest single object size",
+        "LFS": "LFS file count / LFS size",
+        "modules": "Module URL count / module size",
     }
     th_cells = "".join(
         f'<th title="{header_titles[column]}">{column}</th>' if column in header_titles else f"<th>{column}</th>"
@@ -311,15 +378,20 @@ def build_html(repos: list[dict], base_dir: str, output: str) -> str:
         extensions = values.get("git_size_extensions", "n/a") or "n/a"
         cells.extend([
             f'<td title="{html.escape(extensions)}">{html.escape(truncate_with_ellipsis(extensions, 20))}</td>',
-            f'<td class="num" title="Total object size (largest object size)">{html.escape(values.get("git_size_objects", "n/a") or "n/a")} ({html.escape(values.get("git_size_largest", "n/a") or "n/a")})</td>',
-            f'<td class="num" title="LFS file count (LFS size)">{html.escape(values.get("git_size_lfs_files_count", "n/a") or "n/a")} ({html.escape(values.get("git_size_lfs", "n/a") or "n/a")})</td>',
-            f'<td class="num" title="Module URL count (module size)">{html.escape(values.get("git_size_modules_url_count", "n/a") or "n/a")} ({html.escape(values.get("git_size_modules", "n/a") or "n/a")})</td>',
+            f'<td class="num" title="Total Git repository size">{html.escape(values.get("git_size_total", "n/a") or "n/a")}</td>',
+            f'<td class="num" title="Object count">{html.escape(values.get("git_size_objects_count", "n/a") or "n/a")}</td>',
+            f'<td class="num" title="Largest single object size">{html.escape(values.get("git_size_largest", "n/a") or "n/a")}</td>',
+            f'<td class="num" title="LFS file count / LFS size">{html.escape(values.get("git_size_lfs_files_count", "n/a") or "n/a")} / {html.escape(values.get("git_size_lfs", "n/a") or "n/a")}</td>',
+            f'<td class="num" title="Module URL count / module size">{html.escape(values.get("git_size_modules_url_count", "n/a") or "n/a")} / {html.escape(values.get("git_size_modules", "n/a") or "n/a")}</td>',
+            f'<td class="num" title="Total leaf and embedded branches / number of tags">{html.escape(values.get("git_branch_total_count", "0") or "0")} / {html.escape(values.get("git_tags_count", "0") or "0")}</td>',
+            f'<td>{html.escape(values.get("git_latest_branch_commit", "n/a") or "n/a")}</td>',
         ])
         cells.append(tree_cell)
         cells.append(f'<td><a href="{html.escape(repo_dir_rel)}">folder</a></td>')
         verdict = r["values"].get("git_verdict", "n/a") or "n/a"
         rows.append(
             f'<tr data-repo="{html.escape(r["repo"])}" '
+            f'data-extensions="{html.escape(extensions, quote=True)}" '
             f'data-verdict="{html.escape(verdict, quote=True)}">{"".join(cells)}</tr>'
         )
 
@@ -378,6 +450,18 @@ def build_html(repos: list[dict], base_dir: str, output: str) -> str:
             </aside>
         </section>
         <div class="card repo-list">
+            <div class="table-filters" aria-label="Repository filters">
+                <div class="table-filter">
+                    <label for="repository-filter">Repository regex</label>
+                    <input id="repository-filter" type="text" placeholder="e.g. platform|api" spellcheck="false" />
+                    <button id="repository-filter-clear" type="button" title="Clear repository regex">Clear</button>
+                </div>
+                <div class="table-filter">
+                    <label for="extensions-filter">Extensions regex</label>
+                    <input id="extensions-filter" type="text" placeholder="e.g. java|\.jar" spellcheck="false" />
+                    <button id="extensions-filter-clear" type="button" title="Clear extensions regex">Clear</button>
+                </div>
+            </div>
       <table id="repoTable">
         {thead}
         {tbody}
@@ -390,38 +474,46 @@ def build_html(repos: list[dict], base_dir: str, output: str) -> str:
       const headers = table.querySelectorAll('th');
       const tbody = table.querySelector('tbody');
             const verdictFilters = document.querySelectorAll('.verdict-filter');
+      const repositoryFilter = document.getElementById('repository-filter');
+      const repositoryFilterClear = document.getElementById('repository-filter-clear');
+      const extensionsFilter = document.getElementById('extensions-filter');
+      const extensionsFilterClear = document.getElementById('extensions-filter-clear');
       let currentSort = {{ col: null, dir: 'asc' }};
+      let repositoryRegex = null;
+      let extensionsRegex = null;
 
-            function applyVerdictFilter() {{
+            function applyFilters() {{
                 const selectedVerdicts = new Set(
                     Array.from(verdictFilters)
                         .filter(filter => filter.checked)
                         .map(filter => filter.value)
                 );
                 tbody.querySelectorAll('tr[data-verdict]').forEach(row => {{
-                    row.hidden = !selectedVerdicts.has(row.dataset.verdict);
+                    const repositoryMatches = !repositoryRegex || repositoryRegex.test(row.dataset.repo);
+                    const extensionsMatches = !extensionsRegex || extensionsRegex.test(row.dataset.extensions);
+                    row.hidden = !selectedVerdicts.has(row.dataset.verdict) || !repositoryMatches || !extensionsMatches;
                 }});
             }}
 
             verdictFilters.forEach(filter => {{
-                filter.addEventListener('change', applyVerdictFilter);
+                filter.addEventListener('change', applyFilters);
             }});
 
                         document.getElementById('selectAllVerdicts').addEventListener('click', () => {{
                             verdictFilters.forEach(filter => {{ filter.checked = true; }});
-                            applyVerdictFilter();
+                            applyFilters();
                         }});
 
                         document.getElementById('deselectAllVerdicts').addEventListener('click', () => {{
                             verdictFilters.forEach(filter => {{ filter.checked = false; }});
-                            applyVerdictFilter();
+                            applyFilters();
                         }});
 
                         document.querySelectorAll('.status-group-title').forEach(groupTitle => {{
                             groupTitle.addEventListener('click', () => {{
                                 const group = groupTitle.closest('.status-group');
                                 verdictFilters.forEach(filter => {{ filter.checked = group.contains(filter); }});
-                                applyVerdictFilter();
+                                applyFilters();
                             }});
                         }});
 
@@ -434,6 +526,35 @@ def build_html(repos: list[dict], base_dir: str, output: str) -> str:
           currentSort = {{ col: idx, dir: newDir }};
         }});
       }});
+
+            function updateRegexFilter(input, clearButton, property) {{
+                input.addEventListener('input', () => {{
+                    const value = input.value.trim();
+                    if (!value) {{
+                        property.value = null;
+                        applyFilters();
+                        return;
+                    }}
+                    try {{
+                        property.value = new RegExp(value, 'i');
+                        applyFilters();
+                    }} catch (e) {{
+                        property.value = null;
+                    }}
+                }});
+                clearButton.addEventListener('click', () => {{
+                    input.value = '';
+                    input.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                    input.focus();
+                }});
+            }}
+
+            updateRegexFilter(repositoryFilter, repositoryFilterClear, {{
+                set value(regex) {{ repositoryRegex = regex; }}
+            }});
+            updateRegexFilter(extensionsFilter, extensionsFilterClear, {{
+                set value(regex) {{ extensionsRegex = regex; }}
+            }});
 
       function parseHumanSize(str) {{
         const s = str.trim();

@@ -29,12 +29,14 @@ while IFS= read -r git_repo; do
       echo "[ERROR] unknown error executing 'git log' in $git_repo: git exited with code $exit_code"
     fi
     echo "[WARNING] likely empty git repo: $git_repo"
+    : > "$output_dir/git_tags.txt"
     (
       echo "git_size_total=0"
       echo "git_size_objects=0"
       echo "git_size_pack=0"
       echo "git_size_lfs=0"
       echo "git_size_modules=0"
+      echo "git_tags_count=0"
       echo "git_verdict=empty"
     ) > "$output_dir/git_sizes.txt"
     continue;

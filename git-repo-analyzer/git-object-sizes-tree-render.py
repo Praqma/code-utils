@@ -220,6 +220,42 @@ def collect_git_logs(repo_path, paths):
     return logs
 
 
+MAX_TAB_EMBED_BYTES = 1 * 1024 * 1024
+TAB_FILE_NAMES = (
+    'bigtosmall_sorted_size_files_final.txt',
+    'bigtosmall_sorted_size_total_final.txt',
+    'bigtosmall_largest_per_extension.txt',
+    'branches_leaves.txt',
+    'branches_leaves_tagged.txt',
+    'branches_embedded.txt',
+    'branches_embedded_tagged.txt',
+    'git_lfs_files.txt',
+    'git_tags.txt',
+    'git_sizer_verbose.txt',
+    'git_modules_urls.txt',
+)
+
+
+def load_tab_files(report_dir):
+    """Embed tab-data files (capped) so reports work without a webserver when opened via file://."""
+    tab_files = {}
+    for name in TAB_FILE_NAMES:
+        path = os.path.join(report_dir, name)
+        if not os.path.isfile(path):
+            continue
+        size = os.path.getsize(path)
+        with open(path, errors='replace') as f:
+            content = f.read(MAX_TAB_EMBED_BYTES)
+        if size > MAX_TAB_EMBED_BYTES:
+            notice = (
+                '--- TRUNCATED: showing first ' + str(MAX_TAB_EMBED_BYTES) + ' of ' + str(size)
+                + ' bytes. Use serve-results.sh or "Open source file" above for the full content. ---'
+            )
+            content = notice + '\n' + content + '\n' + notice
+        tab_files[name] = content
+    return tab_files
+
+
 def load_extension_verdicts(input_file):
     ext_file = os.path.join(os.path.dirname(os.path.abspath(input_file)), 'git_size_extensions.txt')
     verdicts = {}
@@ -248,8 +284,9 @@ def load_report_metadata(input_file):
     metadata_file = os.path.join(os.path.dirname(os.path.abspath(input_file)), 'git_sizes.txt')
     metadata = {}
     report_dir = os.path.dirname(os.path.abspath(input_file))
+    latest_branch_commit = None
 
-    key_re = re.compile(r"^(git_size_total|git_size_largest|git_size_modules|git_size_lfs|git_size_lfs_files_count|git_size_modules_url_count)='([^']*)'$")
+    key_re = re.compile(r"^(git_size_total|git_size_largest|git_size_modules|git_size_lfs|git_size_lfs_files_count|git_size_modules_url_count|git_tags_count)='([^']*)'$")
     if os.path.isfile(metadata_file):
         with open(metadata_file) as f:
             for raw in f:
@@ -265,16 +302,25 @@ def load_report_metadata(input_file):
             branch_counts[branch_key] = 0
             continue
         with open(branch_file) as branch_handle:
-          line_count = sum(1 for line in branch_handle if line.strip())
+          line_count = 0
+          for raw_line in branch_handle:
+            line = raw_line.strip()
+            if not line:
+              continue
+            line_count += 1
+            date_match = re.match(r'^(\d{4}-\d{2}-\d{2})\b', line)
+            if date_match and (latest_branch_commit is None or date_match.group(1) > latest_branch_commit):
+              latest_branch_commit = date_match.group(1)
         branch_counts[branch_key] = max(0, line_count - 1)
     metadata['git_branch_leaves_count'] = str(branch_counts.get('branches_leaves', 0))
     metadata['git_branch_embedded_count'] = str(branch_counts.get('branches_embedded', 0))
     metadata['git_branch_leaves_tagged_count'] = str(branch_counts.get('branches_leaves_tagged', 0))
     metadata['git_branch_embedded_tagged_count'] = str(branch_counts.get('branches_embedded_tagged', 0))
+    metadata['git_latest_branch_commit'] = latest_branch_commit or 'n/a'
     return metadata
 
 
-def render_html(repo_name, repo_link, parent_link, current_repo_link, tree_json, logs_json, ext_verdicts_json, metadata_json):
+def render_html(repo_name, repo_link, parent_link, current_repo_link, tree_json, logs_json, ext_verdicts_json, metadata_json, tab_files_json):
     html_template = r'''<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="UTF-8"><title>Git Object Sizes - __REPO__</title>
@@ -416,7 +462,8 @@ button:hover{background:#45475a}
   <div id="repo-stats">
     <div class="repo-stat" title="Repository checkout size / visible tree size / total size across all revisions">Repository sizes: <strong id="stat-total"></strong></div>
     <div class="repo-stat" title="Largest current single file / visible files after filters / total unique files tracked">Unique files tracked: <strong id="stat-files"></strong></div>
-    <div class="repo-stat" title="Leaf branches / embedded branches / tagged leaf branches / tagged embedded branches">Branches: <strong id="stat-branches"></strong></div>
+    <div class="repo-stat" title="Leaf branches / embedded branches / tagged leaf branches / tagged embedded branches - tags">Branches - tags: <strong id="stat-branches"></strong></div>
+    <div class="repo-stat" title="Newest commit date found in the branch reports">Latest branch commit: <strong id="stat-latest-branch-commit"></strong></div>
     <div class="repo-stat">Submodules(urls in HEAD): <strong id="stat-modules"></strong></div>
     <div class="repo-stat">LFS: <strong id="stat-lfs"></strong></div>
     <div class="repo-stat">Extensions (incl [no_ext]): <strong id="stat-extensions"></strong></div>
@@ -468,16 +515,17 @@ button:hover{background:#45475a}
   <main id="main">
     <div class="view-tabs" role="tablist" aria-label="Path/file report views">
       <button class="view-tab" type="button" role="tab" aria-selected="true" data-view="tree">Folder<br>tree</button>
-      <button class="view-tab" type="button" role="tab" aria-selected="false" data-view="files" data-src="bigtosmall_sorted_size_files_final.txt">Largest<br>single files</button>
-      <button class="view-tab" type="button" role="tab" aria-selected="false" data-view="total" data-src="bigtosmall_sorted_size_total_final.txt">Largest<br>Revisions</button>
-      <button class="view-tab" type="button" role="tab" aria-selected="false" data-view="largest-extension" data-src="bigtosmall_largest_per_extension.txt">Largest<br>per extension</button>
-      <button class="view-tab" type="button" role="tab" aria-selected="false" data-view="leaves" data-src="branches_leaves.txt">Branches<br>leaves</button>
-      <button class="view-tab" type="button" role="tab" aria-selected="false" data-view="leaves-tagged" data-src="branches_leaves_tagged.txt">Branches<br>leaves(tagged)</button>
-      <button class="view-tab" type="button" role="tab" aria-selected="false" data-view="embedded" data-src="branches_embedded.txt">Branches<br>embedded</button>
-      <button class="view-tab" type="button" role="tab" aria-selected="false" data-view="embedded-tagged" data-src="branches_embedded_tagged.txt">Branches<br>embedded(tagged)</button>
-      <button class="view-tab" type="button" role="tab" aria-selected="false" data-view="lfs-files" data-src="git_lfs_files.txt">LFS<br>files</button>
-      <button class="view-tab" type="button" role="tab" aria-selected="false" data-view="git-sizer" data-src="git_sizer_verbose.txt">Git<br>sizer</button>
-      <button class="view-tab" type="button" role="tab" aria-selected="false" data-view="module-urls" data-src="git_modules_urls.txt">Module<br>URLs</button>
+      <button class="view-tab" type="button" role="tab" aria-selected="false" data-view="files" data-src="bigtosmall_sorted_size_files_final.txt" data-title="Largest single files">Largest<br>single files</button>
+      <button class="view-tab" type="button" role="tab" aria-selected="false" data-view="total" data-src="bigtosmall_sorted_size_total_final.txt" data-title="Largest Revisions">Largest<br>Revisions</button>
+      <button class="view-tab" type="button" role="tab" aria-selected="false" data-view="largest-extension" data-src="bigtosmall_largest_per_extension.txt" data-title="Largest per extension">Largest<br>per extension</button>
+      <button class="view-tab" type="button" role="tab" aria-selected="false" data-view="leaves" data-src="branches_leaves.txt" data-title="Branches leaves">Branches<br>leaves</button>
+      <button class="view-tab" type="button" role="tab" aria-selected="false" data-view="leaves-tagged" data-src="branches_leaves_tagged.txt" data-title="Branches leaves(tagged)">Branches<br>leaves(tagged)</button>
+      <button class="view-tab" type="button" role="tab" aria-selected="false" data-view="embedded" data-src="branches_embedded.txt" data-title="Branches embedded">Branches<br>embedded</button>
+      <button class="view-tab" type="button" role="tab" aria-selected="false" data-view="embedded-tagged" data-src="branches_embedded_tagged.txt" data-title="Branches embedded(tagged)">Branches<br>embedded(tagged)</button>
+      <button class="view-tab" type="button" role="tab" aria-selected="false" data-view="lfs-files" data-src="git_lfs_files.txt" data-title="LFS files">LFS<br>files</button>
+      <button class="view-tab" type="button" role="tab" aria-selected="false" data-view="tags" data-src="git_tags.txt" data-title="Tags">Tags</button>
+      <button class="view-tab" type="button" role="tab" aria-selected="false" data-view="git-sizer" data-src="git_sizer_verbose.txt" data-title="Git sizer">Git<br>sizer</button>
+      <button class="view-tab" type="button" role="tab" aria-selected="false" data-view="module-urls" data-src="git_modules_urls.txt" data-title="Module URLs">Module<br>URLs</button>
     </div>
     <div id="tree-panel">
       <div class="hdr">
@@ -510,6 +558,7 @@ const DATA = __DATA__;
 const FILE_LOGS = __LOGS__;
 const EXT_VERDICTS = __EXT_VERDICTS__;
 const REPORT_META = __META__;
+const TAB_FILES = __TAB_FILES__;
 const total = DATA.s;
 let pathRegexText = '';
 let pathRegex = null;
@@ -910,7 +959,7 @@ function renderTree() {
 
   const filteredRoot = {
     ...DATA,
-    ch: (DATA.ch || []).map(c => filterTree(c, '')).filter(Boolean)
+    ch: sortChildren((DATA.ch || []).map(c => filterTree(c, '')).filter(Boolean))
   };
   renderExtensionTable(filteredRoot.ch);
   for (const c of filteredRoot.ch) tree.appendChild(buildNode(c, 0));
@@ -931,7 +980,7 @@ function renderTreeAsync(token) {
 
   const filteredRoot = {
     ...DATA,
-    ch: (DATA.ch || []).map(c => filterTree(c, '')).filter(Boolean)
+    ch: sortChildren((DATA.ch || []).map(c => filterTree(c, '')).filter(Boolean))
   };
 
   if (token !== renderToken) return;
@@ -996,7 +1045,10 @@ function scheduleRender(debounceMs) {
     (REPORT_META.git_branch_leaves_count || '0') + ' / ' +
     (REPORT_META.git_branch_embedded_count || '0') + ' / ' +
     (REPORT_META.git_branch_leaves_tagged_count || '0') + ' / ' +
-    (REPORT_META.git_branch_embedded_tagged_count || '0');
+    (REPORT_META.git_branch_embedded_tagged_count || '0') + ' - ' +
+    (REPORT_META.git_tags_count || '0');
+  document.getElementById('stat-latest-branch-commit').textContent =
+    REPORT_META.git_latest_branch_commit || 'n/a';
   document.getElementById('stat-modules').textContent =
     (REPORT_META.git_size_modules_url_count || '0') + ' ( ' + (REPORT_META.git_size_modules || '0M') + ' )';
   document.getElementById('stat-lfs').textContent =
@@ -1040,14 +1092,12 @@ function scheduleRender(debounceMs) {
       const filePanel = document.getElementById('file-panel');
       filePanel.classList.toggle('show', !showTree);
       if (!showTree) {
-        document.getElementById('file-panel-title').textContent = tab.textContent;
+        document.getElementById('file-panel-title').textContent = tab.dataset.title || tab.textContent;
         document.getElementById('file-panel-link').href = tab.dataset.src;
         const fileText = document.getElementById('file-text');
-        fileText.textContent = 'Loading ' + tab.dataset.src + '...';
-        fetch(tab.dataset.src)
-          .then(response => response.ok ? response.text() : Promise.reject(new Error(response.status + ' ' + response.statusText)))
-          .then(text => { fileText.textContent = text; })
-          .catch(error => { fileText.textContent = 'Unable to load ' + tab.dataset.src + ': ' + error.message; });
+        fileText.textContent = TAB_FILES[tab.dataset.src] !== undefined
+          ? TAB_FILES[tab.dataset.src]
+          : '(no data found for ' + tab.dataset.src + ')';
       }
     });
   });
@@ -1102,7 +1152,7 @@ function scheduleRender(debounceMs) {
 </body>
 </html>'''
 
-    return html_template.replace('__REPO__', repo_name).replace('__REPO_LINK__', repo_link).replace('__PARENT_LINK__', parent_link).replace('__CURRENT_REPO_LINK__', current_repo_link).replace('__DATA__', tree_json).replace('__LOGS__', logs_json).replace('__EXT_VERDICTS__', ext_verdicts_json).replace('__META__', metadata_json)
+    return html_template.replace('__REPO__', repo_name).replace('__REPO_LINK__', repo_link).replace('__PARENT_LINK__', parent_link).replace('__CURRENT_REPO_LINK__', current_repo_link).replace('__DATA__', tree_json).replace('__LOGS__', logs_json).replace('__EXT_VERDICTS__', ext_verdicts_json).replace('__META__', metadata_json).replace('__TAB_FILES__', tab_files_json)
 
 
 def main():
@@ -1133,6 +1183,7 @@ def main():
     repo_name = os.path.basename(os.path.abspath(os.path.dirname(input_file)))
     metadata = load_report_metadata(input_file)
     metadata_json = json.dumps(metadata)
+    tab_files_json = json.dumps(load_tab_files(os.path.dirname(os.path.abspath(input_file))))
     output_dir = os.path.dirname(os.path.abspath(output_file))
     repo_link = './'
     parent_link = ''
@@ -1144,7 +1195,7 @@ def main():
           parent_link = '<a href="' + html.escape(parent_href, quote=True) + '" title="Open parent report">..</a> / '
           break
     current_repo_link = '<a href="' + html.escape(repo_link, quote=True) + '" title="Raw data and more details">' + html.escape(repo_name) + '</a>'
-    rendered_html = render_html(repo_name, repo_link, parent_link, current_repo_link, tree_json, logs_json, ext_verdicts_json, metadata_json)
+    rendered_html = render_html(repo_name, repo_link, parent_link, current_repo_link, tree_json, logs_json, ext_verdicts_json, metadata_json, tab_files_json)
 
     with open(output_file, 'w') as f:
       f.write(rendered_html)
