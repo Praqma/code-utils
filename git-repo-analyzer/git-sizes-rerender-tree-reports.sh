@@ -59,22 +59,20 @@ if [[ ! -d "$default_results_dir" ]]; then
   exit 1
 fi
 
-processed=0
-skipped=0
-for report_dir in "$default_results_dir"/*; do
-  [[ -d "$report_dir" ]] || continue
-  totals_file="$report_dir/$totals_name"
-  if [[ -f "$totals_file" ]]; then
-    rerender_report "$totals_file"
-    ((processed += 1))
-  else
-    ((skipped += 1))
-  fi
-done
+mapfile -d '' -t totals_files < <(find "$default_results_dir" -mindepth 2 -maxdepth 2 -type f -name "$totals_name" -print0)
+report_dirs_count=$(find "$default_results_dir" -mindepth 1 -maxdepth 1 -type d | wc -l)
+processed=${#totals_files[@]}
+skipped=$((report_dirs_count - processed))
+
+rerender_workers="${RERENDER_WORKERS:-$(nproc 2>/dev/null || printf 1)}"
+export -f rerender_report
+export renderer html_name
+printf '%s\0' "${totals_files[@]}" \
+  | xargs -0 -r -n 1 -P "$rerender_workers" bash -c 'rerender_report "$1"' rerender-worker
 
 printf 'Rerendered: %d; skipped: %d\n' "$processed" "$skipped"
 
 if [[ $processed -gt 0 ]]; then
   overview_file="$default_results_dir/$overview_html_name"
-  python3 "$renderer" "$overview_file" "$(dirname -- "$overview_file")/$overview_html_name"
+  python3 "${script_dir}/generate_overview.py"  "$(dirname -- "$overview_file")" "$(dirname -- "$overview_file")/$overview_html_name"
 fi
