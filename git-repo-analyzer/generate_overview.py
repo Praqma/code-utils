@@ -408,8 +408,8 @@ def build_html(repos: list[dict], base_dir: str, output: str) -> str:
     for group, title in (("green", "Green"), ("yellow", "Yellow"), ("red", "Red"), ("unknown", "Unknown")):
         items = "".join(
                 f'''<label class="status-item {group}">
-                            <input type="checkbox" class="verdict-filter" value="{html.escape(verdict, quote=True)}" checked />
-              <span class="status-count">{count}</span>
+                            <input type="checkbox" class="verdict-filter" value="{html.escape(verdict, quote=True)}" data-total="{count}" checked />
+              <span class="status-count">{count} / {count}</span>
               <span class="status-label">{html.escape(verdict)}</span>
                         </label>'''
             for verdict, count in sorted(verdict_counts.items(), key=lambda item: (-item[1], item[0].lower()))
@@ -482,22 +482,43 @@ def build_html(repos: list[dict], base_dir: str, output: str) -> str:
       let repositoryRegex = null;
       let extensionsRegex = null;
 
-            function applyFilters() {{
-                const selectedVerdicts = new Set(
-                    Array.from(verdictFilters)
-                        .filter(filter => filter.checked)
-                        .map(filter => filter.value)
-                );
-                tbody.querySelectorAll('tr[data-verdict]').forEach(row => {{
-                    const repositoryMatches = !repositoryRegex || repositoryRegex.test(row.dataset.repo);
-                    const extensionsMatches = !extensionsRegex || extensionsRegex.test(row.dataset.extensions);
-                    row.hidden = !selectedVerdicts.has(row.dataset.verdict) || !repositoryMatches || !extensionsMatches;
-                }});
-            }}
+      function refreshVerdictCounts() {{
+        const counts = new Map();
+        tbody.querySelectorAll('tr[data-verdict]').forEach(row => {{
+          const repoVisible = !repositoryRegex || repositoryRegex.test(row.dataset.repo);
+          const extVisible = !extensionsRegex || extensionsRegex.test(row.dataset.extensions);
+          if (!repoVisible || !extVisible) return;
+          const verdict = row.dataset.verdict;
+          counts.set(verdict, (counts.get(verdict) || 0) + 1);
+        }});
 
-            verdictFilters.forEach(filter => {{
-                filter.addEventListener('change', applyFilters);
-            }});
+        verdictFilters.forEach(filter => {{
+          const item = filter.closest('.status-item');
+          const countSpan = item && item.querySelector('.status-count');
+          const total = Number(filter.dataset.total || 0);
+          if (countSpan) {{
+            countSpan.textContent = `${{counts.get(filter.value) || 0}} / ${{total}}`;
+          }}
+        }});
+      }}
+
+      function applyFilters() {{
+        const selectedVerdicts = new Set(
+            Array.from(verdictFilters)
+                .filter(filter => filter.checked)
+                .map(filter => filter.value)
+        );
+        tbody.querySelectorAll('tr[data-verdict]').forEach(row => {{
+            const repositoryMatches = !repositoryRegex || repositoryRegex.test(row.dataset.repo);
+            const extensionsMatches = !extensionsRegex || extensionsRegex.test(row.dataset.extensions);
+            row.hidden = !selectedVerdicts.has(row.dataset.verdict) || !repositoryMatches || !extensionsMatches;
+        }});
+        refreshVerdictCounts();
+      }}
+
+      verdictFilters.forEach(filter => {{
+        filter.addEventListener('change', applyFilters);
+      }});
 
                         document.getElementById('selectAllVerdicts').addEventListener('click', () => {{
                             verdictFilters.forEach(filter => {{ filter.checked = true; }});
