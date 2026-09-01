@@ -455,10 +455,10 @@ if [[ ${invest_remote_branches} == true ]]; then
   printf "Make tagged branches lists: "
   printf "%-10s : %-15s : %-12s : %-50s : %s\n" \
           "Updated" "commits/files" "sha1" "subject" "refs" >"${file_output_branch_leaves_tagged}"
-  grep " (tag: " "${file_output_branch_leaves}" >> "${file_output_branch_leaves_tagged}" 2> /dev/null || echo "INFO: No leaf branches with tags"
+  grep -E ' : tag:' "${file_output_branch_leaves}" >> "${file_output_branch_leaves_tagged}" 2> /dev/null || echo "INFO: No leaf branches with tags"
   printf "%-10s : %-15s : %-12s : %-50s : %s\n" \
           "Updated" "commits/files" "sha1" "subject" "refs" >"${file_output_branch_embedded_tagged}"
-  grep " (tag: " "${file_output_branch_embedded}" >> "${file_output_branch_embedded_tagged}" 2> /dev/null || echo "INFO: No embedded branches with tags"
+  grep -E ' : tag:' "${file_output_branch_embedded}" >> "${file_output_branch_embedded_tagged}" 2> /dev/null || echo "INFO: No embedded branches with tags"
   printf "Done\n\n"
 else
   printf "invest_remote_branches != true (%s) - skip\n" "$invest_remote_branches"
