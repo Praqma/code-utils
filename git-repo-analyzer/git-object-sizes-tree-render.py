@@ -25,6 +25,7 @@ def to_list(node):
       'f': node['max_final_file_size'],
         'p': node['prefix'],
         'c': node['count'],
+        'v': node.get('verdict', ''),
         'd': node['is_dir'],
         'ch': children,
     }
@@ -39,6 +40,7 @@ def build_tree(input_file):
         'children': {},
         'prefix': '',
         'count': 0,
+        'verdict': '',
         'is_dir': True,
     }
 
@@ -72,6 +74,7 @@ def build_tree(input_file):
                         'children': {},
                         'prefix': '',
                         'count': 0,
+                        'verdict': '',
                         'is_dir': True,
                     }
                 node['children'][comp]['size'] += size
@@ -90,6 +93,7 @@ def build_tree(input_file):
                     'children': {},
                     'prefix': prefix,
                     'count': count,
+                    'verdict': '',
                     'is_dir': False,
                 }
             else:
@@ -102,6 +106,40 @@ def build_tree(input_file):
             root['max_record_size'] = max(root['max_record_size'], size)
 
     return root
+
+
+def apply_file_verdicts(root, input_file):
+    """Attach path-specific verdicts from the largest-file report."""
+    verdict_file = os.path.join(
+        os.path.dirname(os.path.abspath(input_file)),
+        'bigtosmall_largest_per_extension.txt',
+    )
+    if not os.path.isfile(verdict_file):
+        return
+
+    with open(verdict_file, errors='replace') as file_handle:
+        for raw_line in file_handle:
+            match = re.match(r'^\d+\s+\S+\s+(\S+)\s+(.+)$', raw_line.strip())
+            if not match:
+                continue
+            verdict, path = match.groups()
+            node = root
+            for component in path.split('/'):
+                child = node['children'].get(component)
+                if child is None:
+                    child = next(
+                        (
+                            candidate
+                            for name, candidate in node['children'].items()
+                            if strip_pack_tag(name) == component
+                        ),
+                        None,
+                    )
+                node = child
+                if node is None:
+                    break
+            if node is not None and not node['is_dir']:
+                node['verdict'] = verdict
 
 
 def apply_final_file_sizes(root, input_file):
@@ -231,6 +269,7 @@ TAB_FILE_NAMES = (
     'branches_embedded_tagged.txt',
     'git_lfs_files.txt',
     'git_tags.txt',
+    'git_tags_leaves.txt',
     'git_sizer_verbose.txt',
     'git_modules_urls.txt',
 )
@@ -286,7 +325,7 @@ def load_report_metadata(input_file):
     report_dir = os.path.dirname(os.path.abspath(input_file))
     latest_branch_commit = None
 
-    key_re = re.compile(r"^(git_size_total|git_size_largest|git_size_modules|git_size_lfs|git_size_lfs_files_count|git_size_modules_url_count|git_tags_count)='([^']*)'$")
+    key_re = re.compile(r"^(git_size_total|git_size_objects_verdict|git_size_largest|git_size_modules|git_size_lfs|git_size_lfs_verdict|git_size_lfs_files_count|git_size_modules_url_count|git_tags_count|git_verdict)='([^']*)'$")
     if os.path.isfile(metadata_file):
         with open(metadata_file) as f:
             for raw in f:
@@ -320,7 +359,16 @@ def load_report_metadata(input_file):
     return metadata
 
 
-def render_html(repo_name, repo_link, parent_link, current_repo_link, tree_json, logs_json, ext_verdicts_json, metadata_json, tab_files_json):
+def verdict_css_class(value):
+    v = (value or '').strip().lower()
+    if 'too-big' in v or 'must lfs' in v or 'must-lfs' in v or '!' in v:
+        return 'red'
+    if 'ok' in v or 'no issue' in v or 'no issues' in v or 'aaa' in v:
+        return 'green'
+    return 'yellow'
+
+
+def render_html(repo_name, repo_link, parent_link, current_repo_link, tree_json, logs_json, ext_verdicts_json, metadata_json, tab_files_json, repo_size_verdict, file_size_verdict):
     html_template = r'''<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="UTF-8"><title>Git Object Sizes - __REPO__</title>
@@ -332,6 +380,10 @@ body{font-family:'Segoe UI',Consolas,monospace;background:radial-gradient(circle
 #sidebar,#main,#controls{display:contents}
 h1{font-size:1.8em;color:#e5e9ff;margin-bottom:6px}
 h1 a{color:#8ab4ff;text-decoration:none}
+.headline-verdict{display:inline-block;font-weight:700;padding:0 0.15em;border-radius:4px}
+.headline-verdict.green{color:#34d399}
+.headline-verdict.yellow{color:#fbbf24}
+.headline-verdict.red{color:#ef4444}
 #summary-hint{font-size:.84em;color:#8e97bc;background:#1f243b;border:1px solid #39415f;border-radius:8px;padding:6px 10px;display:block;width:100%}
 #sidebar-title{font-size:1.3em;margin-bottom:6px}
 #sidebar-subtitle{font-size:.9em;color:#aab2d8;margin-bottom:12px}
@@ -389,7 +441,7 @@ button:hover{background:#45475a}
 #file-panel-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;background:#1a1f33;border-bottom:1px solid #39415f;font-size:.9em}
 #file-panel-head a{color:#8ab4ff;text-decoration:none}
 #file-text{margin:0;padding:10px;min-height:0;overflow:auto;white-space:pre;color:#e5e9ff;background:#101629;font:12px Consolas,monospace;line-height:1.35}
-.hdr,.row{display:grid;grid-template-columns:minmax(0,1fr) 40px minmax(24px,.8fr) minmax(13px,.225fr) minmax(16px,.25fr);column-gap:5px;align-items:center}
+.hdr,.row{display:grid;grid-template-columns:minmax(0,1fr) 40px minmax(54px,.55fr) minmax(24px,.8fr) minmax(13px,.225fr);column-gap:5px;align-items:center}
 .hdr{position:sticky;top:0;z-index:3;padding:6px 8px;font-size:.9em;color:#aab2d8;border-bottom:1px solid #39415f;background:#1a1f33;user-select:none}
 .hdr .h-name{min-width:0}
 .hdr .h-tag{text-align:right}
@@ -411,6 +463,11 @@ button:hover{background:#45475a}
 .sz{text-align:right;color:#a6adc8;font-size:.92em}
 .cnt{text-align:right;color:#585b70;font-size:.88em}
 .tag,.sz,.cnt{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.verdict{text-align:center;color:#aab2d8;font-size:.78em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ext-verdict{display:inline;color:#aab2d8;font-size:.78em;line-height:1.2;white-space:nowrap}
+.ext-table td.ext-verdict-white{color:#e5e9ff;background:none;border:none;padding:0;border-radius:0}
+.ext-table td.ext-verdict-red{color:#ef4444;background:none;border:none;padding:0;border-radius:0}
+.ext-table td.ext-verdict-yellow{color:#fbbf24;background:none;border:none;padding:0;border-radius:0}
 .sz-dir{color:#c9cedf}
 .sz-H{color:#89b4fa}
 .sz-B{color:#fab387}
@@ -420,7 +477,7 @@ button:hover{background:#45475a}
 .cnt-B{color:#fab387}
 .cnt-hist{color:#ef4444}
 .tag,.sz,.cnt{color:#e5e9ff!important}
-.sz-hist,.cnt-hist{color:#ff9f9f!important}
+.sz-hist,.cnt-hist{color:#ef4444!important}
 .children{display:block}
 .collapsed>.children{display:none}
 .bar-dir{background:#c9cedf}
@@ -449,17 +506,18 @@ button:hover{background:#45475a}
   #tree-panel{min-height:420px}
 }
 @media (max-width:1280px){
-  .hdr,.row{grid-template-columns:minmax(0,1fr) 34px minmax(18px,.9fr) minmax(10px,.2fr) minmax(12px,.2fr)}
+.hdr,.row{grid-template-columns:minmax(0,1fr) 34px minmax(42px,.5fr) minmax(18px,.9fr) minmax(10px,.2fr) minmax(12px,.2fr)}
   .lead{padding-left:calc(var(--depth, 0) * 7px)}
 }
 </style>
 </head>
 <body>
 <div id="main-top">
-  <h1>Git Object Sizes &mdash; __PARENT_LINK____CURRENT_REPO_LINK__</h1>
+  <h1># Git Object Sizes &mdash; __CURRENT_REPO_LINK__</h1>
 </div>
 <div id="action-row">
   <div id="repo-stats">
+    <div class="repo-stat" title="Repo / file verdict status">Verdict (repo / file): <strong><span class="headline-verdict __REPO_SIZE_VERDICT_CLASS__">__REPO_SIZE_VERDICT__</span> / <span class="headline-verdict __FILE_SIZE_VERDICT_CLASS__">__FILE_SIZE_VERDICT__</span></strong></div>
     <div class="repo-stat" title="Repository checkout size / visible tree size / total size across all revisions">Repository sizes: <strong id="stat-total"></strong></div>
     <div class="repo-stat" title="Largest current single file / visible files after filters / total unique files tracked">Unique files tracked: <strong id="stat-files"></strong></div>
     <div class="repo-stat" title="Leaf branches / embedded branches / tagged leaf branches / tagged embedded branches - tags">Branches - tags: <strong id="stat-branches"></strong></div>
@@ -498,7 +556,7 @@ button:hover{background:#45475a}
                 <th>Extension</th>
                 <th>Total Size</th>
                 <th>Count</th>
-                <th title="nA/nB = 8kb NUL char detection for binary&#10;gA/gB = git diff says text/binary&#10;fA/fB/fE = file says text/binary/empty">Verdict *</th>
+                <th title="nA/nB = NUL character detection for binary&#10;gA/gB = git diff says text/binary&#10;fA/fB/fE = file says text/binary/empty">Verdict *</th>
               </tr>
             </thead>
           </table>
@@ -524,6 +582,7 @@ button:hover{background:#45475a}
       <button class="view-tab" type="button" role="tab" aria-selected="false" data-view="embedded-tagged" data-src="branches_embedded_tagged.txt" data-title="Branches embedded(tagged)">Branches<br>embedded(tagged)</button>
       <button class="view-tab" type="button" role="tab" aria-selected="false" data-view="lfs-files" data-src="git_lfs_files.txt" data-title="LFS files">LFS<br>files</button>
       <button class="view-tab" type="button" role="tab" aria-selected="false" data-view="tags" data-src="git_tags.txt" data-title="Tags">Tags</button>
+      <button class="view-tab" type="button" role="tab" aria-selected="false" data-view="tags-leaves" data-src="git_tags_leaves.txt" data-title="Tag leaves">Tag<br>leaves</button>
       <button class="view-tab" type="button" role="tab" aria-selected="false" data-view="git-sizer" data-src="git_sizer_verbose.txt" data-title="Git sizer">Git<br>sizer</button>
       <button class="view-tab" type="button" role="tab" aria-selected="false" data-view="module-urls" data-src="git_modules_urls.txt" data-title="Module URLs">Module<br>URLs</button>
     </div>
@@ -666,7 +725,7 @@ function fileExtFromPath(path) {
   const rawName = (path || '').split('/').pop() || '';
   const name = rawName.replace(/\s+\(\s*[IP]\s*\)\s*$/i, '');
   const dot = name.lastIndexOf('.');
-  if (dot <= 0 || dot === name.length - 1) return '[no_ext]';
+  if (dot < 0 || dot === name.length - 1) return '[no_ext]';
   return name.slice(dot + 1).toLowerCase();
 }
 
@@ -719,11 +778,16 @@ function renderExtensionTable(filteredChildren) {
     const tdSize = document.createElement('td');
     const tdCount = document.createElement('td');
     const tdVerdict = document.createElement('td');
+    const verdictText = String(item.verdict || '');
+    const verdictClass = /must[- ]lfs|[-!]lfs$/i.test(verdictText) ? 'ext-verdict-red' : (
+      /^(?:AAA|nAgAfA)!?$/i.test(verdictText) ? 'ext-verdict-white' : 'ext-verdict-yellow'
+    );
     tdExt.textContent = item.ext;
     tdSize.textContent = fmtSz(item.size);
     tdCount.textContent = String(item.count);
-    tdVerdict.textContent = item.verdict;
-    tdVerdict.title = 'nA/nB = 8kb NUL char detection for binary\ngA/gB = git diff says text/binary\nfA/fB/fE = file says text/binary/empty';
+    tdVerdict.textContent = verdictText;
+    tdVerdict.className = 'ext-verdict ' + verdictClass;
+    tdVerdict.title = 'nA/nB = NUL character detection for binary\ngA/gB = git diff says text/binary\nfA/fB/fE = file says text/binary/empty';
     tr.appendChild(tdExt);
     tr.appendChild(tdSize);
     tr.appendChild(tdCount);
@@ -732,7 +796,7 @@ function renderExtensionTable(filteredChildren) {
     tr.addEventListener('click', () => {
       const input = document.getElementById('path-filter');
       const filter = item.ext === '[no_ext]'
-        ? '(^|/)[^/]*$'
+        ? '(?:^|/)(?:[^./]+|\\.[^./]+)$'
         : '\\.' + item.ext.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&') + '$';
       input.value = input.value === filter ? '' : filter;
       input.dispatchEvent(new Event('input', { bubbles: true }));
@@ -797,7 +861,8 @@ function buildNode(node, depth) {
 
   const row = document.createElement('div');
   row.className = 'row' + (hasKids ? ' clickable' : '');
-  row.title = 'Right-click a file row to view git history output';
+  const verdictText = !isDir && node.v ? '\nVerdict: ' + node.v : '';
+  row.title = 'Right-click a file row to view git history output' + verdictText;
   row.style.setProperty('--depth', depth);
   const historicalLeaf = isHistoricalLeaf(node);
 
@@ -815,7 +880,7 @@ function buildNode(node, depth) {
   const nm = document.createElement('div');
   nm.className = 'nm';
   nm.textContent = parsed.displayName;
-  nm.title = parsed.displayName + ' \u2014 ' + fmtSz(node.s) + (node.c > 1 ? ' (' + node.c + ' revisions)' : '') + '\nRight-click a file row to view git history output';
+  nm.title = parsed.displayName + ' \u2014 ' + fmtSz(node.s) + (node.c > 1 ? ' (' + node.c + ' revisions)' : '') + verdictText + '\nRight-click a file row to view git history output';
 
   const tag = document.createElement('div');
   tag.className = 'tag';
@@ -1152,7 +1217,9 @@ function scheduleRender(debounceMs) {
 </body>
 </html>'''
 
-    return html_template.replace('__REPO__', repo_name).replace('__REPO_LINK__', repo_link).replace('__PARENT_LINK__', parent_link).replace('__CURRENT_REPO_LINK__', current_repo_link).replace('__DATA__', tree_json).replace('__LOGS__', logs_json).replace('__EXT_VERDICTS__', ext_verdicts_json).replace('__META__', metadata_json).replace('__TAB_FILES__', tab_files_json)
+    repo_size_verdict_class = verdict_css_class(repo_size_verdict)
+    file_size_verdict_class = verdict_css_class(file_size_verdict)
+    return html_template.replace('__REPO__', repo_name).replace('__REPO_LINK__', repo_link).replace('__PARENT_LINK__', parent_link).replace('__CURRENT_REPO_LINK__', current_repo_link).replace('__REPO_SIZE_VERDICT__', repo_size_verdict).replace('__REPO_SIZE_VERDICT_CLASS__', repo_size_verdict_class).replace('__FILE_SIZE_VERDICT__', file_size_verdict).replace('__FILE_SIZE_VERDICT_CLASS__', file_size_verdict_class).replace('__DATA__', tree_json).replace('__LOGS__', logs_json).replace('__EXT_VERDICTS__', ext_verdicts_json).replace('__META__', metadata_json).replace('__TAB_FILES__', tab_files_json)
 
 
 def main():
@@ -1171,6 +1238,7 @@ def main():
       return 1
 
     apply_final_file_sizes(root, input_file)
+    apply_file_verdicts(root, input_file)
 
     tree_json = json.dumps(to_list(root))
     paths = collect_unique_paths(input_file, MIN_LOG_SIZE_BYTES)
@@ -1183,6 +1251,8 @@ def main():
     repo_name = os.path.basename(os.path.abspath(os.path.dirname(input_file)))
     metadata = load_report_metadata(input_file)
     metadata_json = json.dumps(metadata)
+    repo_size_verdict = metadata.get('git_size_objects_verdict', 'n/a')
+    file_size_verdict = metadata.get('git_size_lfs_verdict', 'n/a')
     tab_files_json = json.dumps(load_tab_files(os.path.dirname(os.path.abspath(input_file))))
     output_dir = os.path.dirname(os.path.abspath(output_file))
     repo_link = './'
@@ -1195,7 +1265,7 @@ def main():
           parent_link = '<a href="' + html.escape(parent_href, quote=True) + '" title="Open parent report">..</a> / '
           break
     current_repo_link = '<a href="' + html.escape(repo_link, quote=True) + '" title="Raw data and more details">' + html.escape(repo_name) + '</a>'
-    rendered_html = render_html(repo_name, repo_link, parent_link, current_repo_link, tree_json, logs_json, ext_verdicts_json, metadata_json, tab_files_json)
+    rendered_html = render_html(repo_name, repo_link, parent_link, current_repo_link, tree_json, logs_json, ext_verdicts_json, metadata_json, tab_files_json, repo_size_verdict, file_size_verdict)
 
     with open(output_file, 'w') as f:
       f.write(rendered_html)

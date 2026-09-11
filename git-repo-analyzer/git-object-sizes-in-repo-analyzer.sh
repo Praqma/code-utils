@@ -1,5 +1,10 @@
 #!/bin/bash
 
+# AI skills usage:
+#   Analyze a Git repository and generate object-size reports for downstream rendering.
+#   Example:
+#   WORKSPACE=/tmp/repo-report debug=true repack=false ./git-object-sizes-in-repo-analyzer.sh /path/to/repo
+
 set -eu -o pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -190,9 +195,19 @@ file_output_sorted_size_extensions="${WORKSPACE}/bigtosmall_sorted_size_extensio
 file_output_largest_per_extension="${WORKSPACE}/bigtosmall_largest_per_extension.txt" && rm -rf "${file_output_largest_per_extension}"
 file_output_largest_no_extension="${WORKSPACE}/bigtosmall_largest_no_extension.txt" && rm -rf "${file_output_largest_no_extension}"
 file_output_git_size_extensions="${WORKSPACE}/git_size_extensions.txt" && rm -rf "${file_output_git_size_extensions}"
+
 file_output_git_tags="${WORKSPACE}/git_tags.txt" && rm -f "${file_output_git_tags}"
+file_output_git_tags_leaves="${WORKSPACE}/git_tags_leaves.txt" && rm -f "${file_output_git_tags_leaves}"
+
 git for-each-ref --format='%(refname:strip=2)' refs/tags > "${file_output_git_tags}"
 git_tags_count=$(wc -l < "${file_output_git_tags}")
+
+if [[ -f "$script_dir/git-find-sha1-of-leaf-tags.sh" ]]; then
+  bash "${script_dir}/git-find-sha1-of-leaf-tags.sh" "$git_repo_dir" > "${file_output_git_tags_leaves}" & pid_git_find_leaf_tags=$!
+else
+  echo "WARNING: $script_dir/git-find-sha1-of-leaf-tags.sh not found" >&2
+  touch "${file_output_git_tags_leaves}"
+fi
 
 file_output_git_sizes="${WORKSPACE}/git_sizes.txt" && rm -rf "${file_output_git_sizes}"
 
@@ -224,6 +239,7 @@ function is_repo_empty_and_report_n_exit () {
       echo "git_size_lfs='0'"
       echo "git_size_modules='0'"
       echo "git_tags_count='${git_tags_count}'"
+      echo "git_leaves_tagged_count='${git_leaves_tagged_count}'"
       echo "git_verdict='empty'"
     ) > "${file_output_git_sizes}"
     exit 0;
@@ -267,9 +283,9 @@ function isFileGitBinaryBlob () {
 }
 
 function isFile8kbNulBlob () {
-  # if first 8KB contains a NUL byte.
+  # If the blob contains a NUL byte anywhere.
   set +o pipefail
-  if git cat-file -p "$1" | LC_ALL=C od -An -tx1 -N 8192 | grep -qiE '(^|[[:space:]])00([[:space:]]|$)' ; then
+  if git cat-file -p "$1" | LC_ALL=C grep -a -qP '\x00' ; then
     set -o pipefail
     return 0
   fi
@@ -350,8 +366,6 @@ else
   git_lfs_files_count=0
 fi
 
-
-
 verify_pack_exit_code=0
 echo "[Background process] Running verify-pack for all idx files"
 run_verify_pack_all "${file_verify_pack}" & pid_verify_pack=$!
@@ -362,6 +376,33 @@ git rev-list --objects --all > "${file_tmp_allfileshas}" & pid_allfileshas=$!
 regex_lstree_list='^([a-f0-9]{40})[[:space:]]+(.*)$'
 declare -A default_blobs_map
 declare -A branches_blobs_map
+declare -A tagged_blobs_map
+
+file_tmp_tagged_blobs="${WORKSPACE}/tagged_blobs.tmp"
+
+function process_tagged_blobs() {
+  local output_file="$1"
+  local leaf_sha1
+  local tagged_blob
+  local tagged_path
+
+  : > "${output_file}"
+  while read -r leaf_sha1; do
+    [[ -n "${leaf_sha1}" ]] || continue
+    [[ -n "$(git tag --points-at "${leaf_sha1}")" ]] || continue
+    while IFS=$'\t' read -r tagged_blob tagged_path; do
+      [[ -n "${tagged_blob}" && -n "${tagged_path}" ]] || continue
+      printf '%s\t%s\n' "${tagged_blob}" "${tagged_path}" >> "${output_file}"
+    done < <(git ls-tree -r --full-tree "${leaf_sha1}" | awk -F $'\t' '{ split($1, fields, " "); print fields[3] "\t" $2 }')
+  done < <(git rev-list --all --children | awk 'NF == 1 && $1 ~ /^[a-f0-9]{40}$/ { print $1 }' | sort -u)
+}
+
+echo "[Background process] Processing tagged blobs"
+process_tagged_blobs "${file_tmp_tagged_blobs}" & pid_tagged_blobs=$!
+
+echo "Listing all git tags.."
+git for-each-ref --format='%(refname:strip=2)' refs/tags > "${file_output_git_tags}"
+git_tags_count=$(wc -l < "${file_output_git_tags}")
 
 function process_branch() {
   local branch="$1"
@@ -464,6 +505,14 @@ else
   printf "invest_remote_branches != true (%s) - skip\n" "$invest_remote_branches"
 fi
 
+printf "Waiting: git-find-sha1-of-leaf-tags.sh to finish: "
+wait $pid_git_find_leaf_tags || {
+  echo "ERROR: git-find-sha1-of-leaf-tags.sh failed"
+  exit 1
+}
+git_leaves_tagged_count=$(wc -l < "${file_output_git_tags_leaves}")
+printf "Done\n\n"
+
 printf "Waiting: git lfs ls-files --all to finish: "
 wait "$pid_lfs" || {
   echo "ERROR: git lfs ls-files failed"
@@ -472,6 +521,7 @@ wait "$pid_lfs" || {
 printf "Done\n\n"
 git_lfs_files_count=$(wc -l < "${WORKSPACE}/git_lfs_files.txt")
 
+[[ ${debug:-} == true ]] && jobs
 printf "Waiting: git verify-pack -v for all idx files to finish: "
 wait "$pid_verify_pack" || {
   verify_pack_exit_code=$?
@@ -502,6 +552,13 @@ wait "$pid_allfileshas" || {
 }
 printf "Done\n\n"
 
+printf "Waiting: tagged blob processing to finish: "
+wait "$pid_tagged_blobs" || {
+  echo "ERROR: tagged blob processing failed"
+  exit 1
+}
+printf "Done\n\n"
+
 declare git_size_total_mega git_size_objects_mega git_size_pack_mega git_size_lfs_mega git_size_modules_mega
 bytes_to_megabytes "${git_size_total}" git_size_total_mega
 bytes_to_megabytes "${git_size_objects}" git_size_objects_mega
@@ -519,6 +576,7 @@ git_size_lfs_files_count='${git_lfs_files_count:-0}'
 git_size_modules='${git_size_modules_mega}'
 git_size_modules_url_count='${git_modules_count:-0}'
 git_tags_count='${git_tags_count}'
+git_leaves_tagged_count='${git_leaves_tagged_count}'
 EOF
 
 git_size_objects_verdict="ok"
@@ -555,10 +613,18 @@ for blob in "${!branches_blobs_map[@]}"; do
   printf "%s\t%s\n" "$blob" "${branches_blobs_map[$blob]}" >> "${file_tmp_branches_blobs_map}"
 done
 
+file_tmp_tagged_blobs_map="${WORKSPACE}/tagged_blobs_map.tmp" && rm -f "${file_tmp_tagged_blobs_map}" && touch "${file_tmp_tagged_blobs_map}"
+while IFS=$'\t' read -r blob path; do
+  [[ -n "${blob}" && -n "${path}" ]] || continue
+  tagged_blobs_map["${blob}"]="${path}"
+  printf "%s\t%s\n" "${blob}" "${path}" >> "${file_tmp_tagged_blobs_map}"
+done < "${file_tmp_tagged_blobs}"
+
 : > "${file_output_sorted_size_files}"
 : > "${file_tmp_bigtosmall_join_total}"
 awk -v default_map="${file_tmp_default_blobs_map}" \
     -v branch_map="${file_tmp_branches_blobs_map}" \
+  -v tagged_map="${file_tmp_tagged_blobs_map}" \
     -v details_out="${file_output_sorted_size_files}" \
     -v totals_out="${file_tmp_bigtosmall_join_total}" \
     'BEGIN {
@@ -570,6 +636,10 @@ awk -v default_map="${file_tmp_default_blobs_map}" \
         branch_path[$1] = $2
       }
       close(branch_map)
+      while ((getline < tagged_map) > 0) {
+        tagged_path[$1] = $2
+      }
+      close(tagged_map)
     }
     {
       blob = $1
@@ -584,6 +654,8 @@ awk -v default_map="${file_tmp_default_blobs_map}" \
         prefix = "H"
       } else if ((blob in branch_path) && branch_path[blob] == path_file) {
         prefix = "B"
+      } else if ((blob in tagged_path) && tagged_path[blob] == path_file) {
+        prefix = "T"
       }
 
       print size, prefix, path_file >> details_out
@@ -601,8 +673,10 @@ awk -v default_map="${file_tmp_default_blobs_map}" \
 
       if (prefix == "H") {
         total_prefix[path_file] = "H"
-      } else if (prefix == "B" && total_prefix[path_file] == " ") {
+      } else if (prefix == "B" && total_prefix[path_file] != "H") {
         total_prefix[path_file] = "B"
+      } else if (prefix == "T" && total_prefix[path_file] == " ") {
+        total_prefix[path_file] = "T"
       }
     }
     END {
@@ -631,6 +705,7 @@ touch "${WORKSPACE}/bigtosmall_errors_revision.txt"
 : > "${file_tmp_bigtosmall_join_total_revisions}"
 awk -v default_map="${file_tmp_default_blobs_map}" \
     -v branch_map="${file_tmp_branches_blobs_map}" \
+  -v tagged_map="${file_tmp_tagged_blobs_map}" \
     -v details_out="${file_output_sorted_size_files_revisions}" \
     -v totals_out="${file_tmp_bigtosmall_join_total_revisions}" \
     'BEGIN {
@@ -642,6 +717,10 @@ awk -v default_map="${file_tmp_default_blobs_map}" \
         branch_path[$1] = $2
       }
       close(branch_map)
+      while ((getline < tagged_map) > 0) {
+        tagged_path[$1] = $2
+      }
+      close(tagged_map)
     }
     {
       blob = $1
@@ -656,6 +735,8 @@ awk -v default_map="${file_tmp_default_blobs_map}" \
         prefix = "H"
       } else if ((blob in branch_path) && branch_path[blob] == path_file) {
         prefix = "B"
+      } else if ((blob in tagged_path) && tagged_path[blob] == path_file) {
+        prefix = "T"
       }
 
       print size, prefix, path_file >> details_out
@@ -673,8 +754,10 @@ awk -v default_map="${file_tmp_default_blobs_map}" \
 
       if (prefix == "H") {
         total_prefix[path_file] = "H"
-      } else if (prefix == "B" && total_prefix[path_file] == " ") {
+      } else if (prefix == "B" && total_prefix[path_file] != "H") {
         total_prefix[path_file] = "B"
+      } else if (prefix == "T" && total_prefix[path_file] == " ") {
+        total_prefix[path_file] = "T"
       }
     }
     END {
@@ -701,7 +784,7 @@ while IFS= read -r line; do
   rest="${rest#"${rest%%[![:space:]]*}"}"
 
   marker="${rest%% *}"
-  if [[ "${marker}" == "H" || "${marker}" == "B" ]]; then
+  if [[ "${marker}" == "H" || "${marker}" == "B" || "${marker}" == "T" ]]; then
     path="${rest#?}"
     path="${path#"${path%%[![:space:]]*}"}"
   else
@@ -751,6 +834,17 @@ while IFS= read -r line; do
     else
       verdict="${verdict}fA"
     fi
+    if [[ $verdict == "nAgAfA" ]]; then 
+      verdict="${verdict}"
+    elif [[ $verdict == "nBgBfB" ]]; then
+      verdict="${verdict}-!LFS"
+      printf "INFO: %s %s %s %s\n" "${size}" "${ext}" "${verdict}" "${path}" 
+    elif [[ $verdict == *B* ]]; then 
+      verdict="${verdict}-?analyze"
+      printf "INFO: %s %s %s %s\n" "${size}" "${ext}" "${verdict}" "${path}" 
+    else
+      verdict="${verdict}-ok"
+    fi 
 
     printf "%s %s %s %s\n" "${size}" "${ext}" "${verdict}" "${path}" >> "${file_output_largest_per_extension}"
   fi
