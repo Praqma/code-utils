@@ -16,6 +16,8 @@ Options:
   -h  Display this help message
 
 Environment variables:
+  BITBUCKET_AUTH_HEADER   Optional full authentication header for requests
+  BITBUCKET_TOKEN          Optional HTTP access token sent as a Bearer token
   BITBUCKET_COOKIE_HEADER  Optional full Cookie header value to use for requests
   BITBUCKET_COOKIE_JAR     Optional cookie jar file path to use with curl -b
   STDOUT_LOG_FILE          Optional log file path for capturing script stdout
@@ -60,7 +62,11 @@ curl_common_args=(
   -H "Accept: application/json"
 )
 
-if [[ -n "${BITBUCKET_COOKIE_HEADER:-}" ]]; then
+if [[ -n "${BITBUCKET_AUTH_HEADER:-}" ]]; then
+  curl_common_args+=( -H "${BITBUCKET_AUTH_HEADER}" )
+elif [[ -n "${BITBUCKET_TOKEN:-}" ]]; then
+  curl_common_args+=( -H "Authorization: Bearer ${BITBUCKET_TOKEN}" )
+elif [[ -n "${BITBUCKET_COOKIE_HEADER:-}" ]]; then
   curl_common_args+=( -H "Cookie: ${BITBUCKET_COOKIE_HEADER}" )
 elif [[ -n "${BITBUCKET_COOKIE_JAR:-}" ]]; then
   [[ -f "${BITBUCKET_COOKIE_JAR}" ]] || { echo "Cookie jar does not exist: ${BITBUCKET_COOKIE_JAR}" && exit 1; }
