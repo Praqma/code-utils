@@ -76,6 +76,135 @@ else
   curl_common_args+=( --netrc-file "${netrc_file}" )
 fi
 
+submodule_tmp_dir="$(mktemp -d)"
+trap 'rm -rf "${submodule_tmp_dir}"' EXIT
+
+urlencode_path() {
+  local path="$1"
+  local component
+  local encoded_path=""
+  local separator=""
+  local -a path_components
+
+  IFS='/' read -r -a path_components <<< "${path}"
+  for component in "${path_components[@]}"; do
+    encoded_path+="${separator}$(jq -rn --arg value "${component}" '$value | @uri')"
+    separator="/"
+  done
+  printf '%s' "${encoded_path}"
+}
+
+get_repo_submodules() {
+  local project_key="$1"
+  local repository_slug="$2"
+  local at_ref="$3"
+  local gitmodules_file="${submodule_tmp_dir}/gitmodules"
+  local config_record
+  local config_key
+  local config_value
+  local module_key
+  local module_path
+  local module_url
+  local encoded_path
+  local browse_url
+  local browse_response="${submodule_tmp_dir}/browse"
+  local root_browse_url="${url}/rest/api/1.0/projects/${project_key}/repos/${repository_slug}/browse"
+  local config_records="${submodule_tmp_dir}/config-records"
+  local module_type
+  local http_code
+  local config_status
+  local separator=""
+  local -a ref_args=()
+  local -a module_entries=()
+  local -A module_paths=()
+  local -A module_urls=()
+
+  ref_args=()
+  [[ -n "${at_ref}" ]] && ref_args+=( --data-urlencode "at=${at_ref}" )
+  http_code="$(curl "${curl_common_args[@]}" -H "Accept: text/plain" --get \
+    "${ref_args[@]}" -o "${gitmodules_file}" -w "%{http_code}" \
+    --url "${url}/rest/api/1.0/projects/${project_key}/repos/${repository_slug}/raw/.gitmodules" \
+    || true)"
+  if [[ "${http_code}" == "404" ]]; then
+    http_code="$(curl "${curl_common_args[@]}" "${ref_args[@]}" --get \
+      -o "${browse_response}" -w "%{http_code}" --url "${root_browse_url}" || true)"
+    if [[ "${http_code}" == "200" ]]; then
+      submodule_count=0
+      submodule_list="null"
+      return 0
+    fi
+    submodule_count="?"
+    submodule_list="?"
+    echo "Warning: Cannot determine submodules for ${project_key}/${repository_slug}: .gitmodules returned 404 and repository Browse access could not be confirmed (HTTP ${http_code:-unknown}); check effective REPO_READ permission and default branch." >&2
+    return 0
+  elif [[ "${http_code}" == "401" || "${http_code}" == "403" ]]; then
+    submodule_count="?"
+    submodule_list="?"
+    echo "Warning: Cannot read submodules for ${project_key}/${repository_slug} (HTTP ${http_code}); check the Bearer token's effective REPO_READ permission." >&2
+    return 0
+  fi
+  [[ "${http_code}" == "200" ]] || {
+    echo "Error: Failed to fetch .gitmodules for ${project_key}/${repository_slug} (HTTP ${http_code:-unknown})" >&2
+    return 1
+  }
+
+  command -v git > /dev/null || { echo "git is required to parse .gitmodules" >&2; return 1; }
+  if git config --file "${gitmodules_file}" --null --get-regexp '^submodule\..*\.(path|url)$' > "${config_records}"; then
+    :
+  else
+    config_status=$?
+    if [[ "${config_status}" -ne 1 ]]; then
+      echo "Error: Could not parse .gitmodules for ${project_key}/${repository_slug}" >&2
+      return 1
+    fi
+  fi
+
+  while IFS= read -r -d '' config_record; do
+    config_key="${config_record%%$'\n'*}"
+    config_value="${config_record#*$'\n'}"
+    module_key="${config_key%.*}"
+    case "${config_key##*.}" in
+      path) module_paths["${module_key}"]="${config_value}" ;;
+      url) module_urls["${module_key}"]="${config_value}" ;;
+    esac
+  done < "${config_records}"
+
+  for module_key in "${!module_paths[@]}"; do
+    module_path="${module_paths[${module_key}]}"
+    module_url="${module_urls[${module_key}]:-}"
+    [[ -n "${module_path}" && -n "${module_url}" ]] || continue
+
+    encoded_path="$(urlencode_path "${module_path}")"
+    browse_url="${url}/rest/api/1.0/projects/${project_key}/repos/${repository_slug}/browse/${encoded_path}"
+    ref_args=()
+    [[ -n "${at_ref}" ]] && ref_args+=( --data-urlencode "at=${at_ref}" )
+    http_code="$(curl "${curl_common_args[@]}" "${ref_args[@]}" --get \
+      --data-urlencode "type=true" -o "${browse_response}" -w "%{http_code}" \
+      --url "${browse_url}" || true)"
+    [[ "${http_code}" == "404" ]] && continue
+    if [[ "${http_code}" != "200" ]]; then
+      submodule_count="?"
+      submodule_list="?"
+      echo "Warning: Cannot verify submodule path '${module_path}' in ${project_key}/${repository_slug} (HTTP ${http_code:-unknown}); check effective REPO_READ permission." >&2
+      return 0
+    fi
+    module_type="$(jq -r '.type // empty' "${browse_response}")"
+    [[ "${module_type}" == "SUBMODULE" ]] || continue
+
+    module_entries+=( "${module_url}" )
+  done
+
+  submodule_count="${#module_entries[@]}"
+  submodule_list="null"
+  if (( ${#module_entries[@]} > 0 )); then
+    submodule_list=""
+    for module_url in "${module_entries[@]}"; do
+      submodule_list+="${separator}${module_url}"
+      separator=", "
+    done
+  fi
+}
+
 fetch_paged_values() {
   local endpoint="$1"
   local value_selector="$2"
@@ -111,7 +240,7 @@ touch "${stdout_log_file}"
 # Capture stdout in a file while still printing to terminal.
 exec > >(tee -a "${stdout_log_file}")
 
-printf "%-60s : %-10s : %-20s : %-10s : %-10s : %-5s : %-5s %s\n"  "project/repo-path" "status" "bytes" "mbytes" "gbytes" "LFS" "repo-id" "repo-URL"
+printf "%-60s : %-10s : %-20s : %-10s : %-10s : %-5s : %-5s : %-10s : %s : %s\n"  "project/repo-path" "status" "bytes" "mbytes" "gbytes" "LFS" "repo-id" "submodules" "repo-URL" "submodule-urls"
 
 server_size_mb=0
 projects_count=0
@@ -120,7 +249,6 @@ size_check_enabled="true"
 lfs_check_enabled="true"
 mapfile -t projects < <(curl --fail "${curl_common_args[@]}" -o - --url "${url}/rest/api/1.0/projects" | jq -r '.values[].key')
 for bitbucket_project in "${projects[@]}"; do
-  echo "Processing project: ${bitbucket_project}"
   project_size_mb=0
   projects_count=$(( ${projects_count:-0} + 1 ))
   mapfile -t slugs < <(fetch_paged_values "/rest/api/1.0/projects/${bitbucket_project}/repos" '.values[].slug')
@@ -133,6 +261,8 @@ for bitbucket_project in "${projects[@]}"; do
 
     repo_details="$(curl --fail "${curl_common_args[@]}" -o - --url "${url}/rest/api/1.0/projects/${bitbucket_project}/repos/${slug}")"
     repo_id="$(jq .id <<< "${repo_details}")"
+    default_branch="$(jq -r 'if (.defaultBranch | type) == "object" then (.defaultBranch.id // .defaultBranch.displayId // empty) else (.defaultBranch // empty) end' <<< "${repo_details}")"
+    get_repo_submodules "${bitbucket_project}" "${slug}" "${default_branch}"
     if [[ "${admin_usage}" == "true" ]]; then
         if [[ "${lfs_check_enabled}" == "true" ]]; then
           lfs_http_code="$(curl "${curl_common_args[@]}" -o /tmp/bitbucket_lfs_enabled.$$ -w "%{http_code}" --url "${url}/rest/git-lfs/admin/projects/${bitbucket_project}/repos/${slug}/enabled" || true)"
@@ -190,8 +320,8 @@ for bitbucket_project in "${projects[@]}"; do
       project_size_mb=$(( ${project_size_mb} + 0 ))
     fi
 
-    printf "%-60s : %-10s : %-20s : %-10s : %-10s : %-5s : %-5s : %s\n"  "${bitbucket_project}/repos/$slug" "${repo_status}" "${size_bytes:-?}" "${size_mb:-?}" "${size_gb:-?}" "${lfs_status}" "${repo_id}" "${repo_url} / ${repo_description}"
-    printf "%-60s : %-10s : %-20s : %-10s : %-10s : %-5s : %-5s : %s\n"  "${bitbucket_project}/repos/$slug" "${repo_status}" "${size_bytes:-?}" "${size_mb:-?}" "${size_gb:-?}" "${lfs_status}" "${repo_id}" "${repo_url} / ${repo_description}" ${WORKSPACE:-.}/$(echo $url | cut -d / -f 3 | cut -d : -f 1).${bitbucket_project}.repos.txt
+    printf "%-60s : %-10s : %-20s : %-10s : %-10s : %-5s : %-5s : %-10s : %s : %s\n"  "${bitbucket_project}/repos/$slug" "${repo_status}" "${size_bytes:-?}" "${size_mb:-?}" "${size_gb:-?}" "${lfs_status}" "${repo_id}" "${submodule_count}" "${repo_url} / ${repo_description}" "${submodule_list}"
+    printf "%-60s : %-10s : %-20s : %-10s : %-10s : %-5s : %-5s : %-10s : %s : %s\n"  "${bitbucket_project}/repos/$slug" "${repo_status}" "${size_bytes:-?}" "${size_mb:-?}" "${size_gb:-?}" "${lfs_status}" "${repo_id}" "${submodule_count}" "${repo_url} / ${repo_description}" "${submodule_list}" >> "${WORKSPACE:-.}/$(echo "${url}" | cut -d / -f 3 | cut -d : -f 1).${bitbucket_project}.repos.txt"
   done
   printf "Project count/size(MB): ${bitbucket_project} : ${slugs_count:-0} / ~${project_size_mb:-0} MB\n\n" >> ${WORKSPACE:-.}/$(echo $url | cut -d / -f 3 | cut -d : -f 1).${bitbucket_project}.repos.txt
   server_size_mb=$(( ${server_size_mb:-0} + ${project_size_mb:-0} ))
