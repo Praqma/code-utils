@@ -36,6 +36,8 @@ Output file:
 * `bigtosmall_sorted_size_files_revisions.txt` ( path/file impact in repository which is store directly in the .idx file - usually big and binary files (*) )
 * `bigtosmall_sorted_size_total.txt` ( the sum of each path/file and amount of revisions in `bigtosmall_sorted_size_files.txt` file (**) )
 * `bigtosmall_sorted_size_total_revisions.txt` ( the sum of each path/file and amount of revisions in `bigtosmall_sorted_size_files_revisions.txt` file (**) )
+* `bigtosmall_largest_no_extension.txt` ( the largest files whose name has no extension, with binary verdict - same 4 column format as `bigtosmall_largest_per_extension.txt`. Row count capped by `LARGEST_NO_EXT_MAX`, default 50 )
+* `git_lfs_candidates.txt` ( two glob lists for `.gitattributes` / `git lfs migrate import --include=`: `git_lfs_candidates` holds extensions that are binary in every check, `git_lfs_mixed` holds the ambiguous ones. `[no_ext]` is excluded from both since it cannot be expressed as a `*.ext` glob )
 * `branches_embedded.txt` ( a list of branches which are embedded hence not leaves in the history tree - hence the branches are targeted to be deleted (***) )
 * `branches_embedded_tagged.txt` ( a list of branches which are embedded hence not leaves in the history tree, but also tagged - hence targeted to be deleted (***)  )
 * `branches_leaves.txt`  ( a list of branches which are leaves in the history tree, but not tagged - hence likely active (****) )

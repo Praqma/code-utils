@@ -240,7 +240,7 @@ touch "${stdout_log_file}"
 # Capture stdout in a file while still printing to terminal.
 exec > >(tee -a "${stdout_log_file}")
 
-printf "%-60s : %-10s : %-20s : %-10s : %-10s : %-5s : %-5s : %-10s : %s : %s\n"  "project/repo-path" "status" "bytes" "mbytes" "gbytes" "LFS" "repo-id" "submodules" "repo-URL" "submodule-urls"
+printf "%-60s ; %-10s ; %-20s ; %-10s ; %-10s ; %-5s ; %-5s ; %-10s ; %s ; %s\n"  "project/repo-path" "status" "bytes" "mbytes" "gbytes" "LFS" "repo-id" "submodules" "repo-URL" "submodule-urls"
 
 server_size_mb=0
 projects_count=0
@@ -320,8 +320,8 @@ for bitbucket_project in "${projects[@]}"; do
       project_size_mb=$(( ${project_size_mb} + 0 ))
     fi
 
-    printf "%-60s : %-10s : %-20s : %-10s : %-10s : %-5s : %-5s : %-10s : %s : %s\n"  "${bitbucket_project}/repos/$slug" "${repo_status}" "${size_bytes:-?}" "${size_mb:-?}" "${size_gb:-?}" "${lfs_status}" "${repo_id}" "${submodule_count}" "${repo_url} / ${repo_description}" "${submodule_list}"
-    printf "%-60s : %-10s : %-20s : %-10s : %-10s : %-5s : %-5s : %-10s : %s : %s\n"  "${bitbucket_project}/repos/$slug" "${repo_status}" "${size_bytes:-?}" "${size_mb:-?}" "${size_gb:-?}" "${lfs_status}" "${repo_id}" "${submodule_count}" "${repo_url} / ${repo_description}" "${submodule_list}" >> "${WORKSPACE:-.}/$(echo "${url}" | cut -d / -f 3 | cut -d : -f 1).${bitbucket_project}.repos.txt"
+    printf "%-60s ; %-10s ; %-20s ; %-10s ; %-10s ; %-5s ; %-5s ; %-10s ; %s ; %s\n"  "${bitbucket_project}/repos/$slug" "${repo_status}" "${size_bytes:-?}" "${size_mb:-?}" "${size_gb:-?}" "${lfs_status}" "${repo_id}" "${submodule_count}" "${repo_url} ; ${repo_description}" "${submodule_list}"
+    printf "%-60s ; %-10s ; %-20s ; %-10s ; %-10s ; %-5s ; %-5s ; %-10s ; %s ; %s\n"  "${bitbucket_project}/repos/$slug" "${repo_status}" "${size_bytes:-?}" "${size_mb:-?}" "${size_gb:-?}" "${lfs_status}" "${repo_id}" "${submodule_count}" "${repo_url} ; ${repo_description}" "${submodule_list}" >> "${WORKSPACE:-.}/$(echo "${url}" | cut -d / -f 3 | cut -d : -f 1).${bitbucket_project}.repos.txt"
   done
   printf "Project count/size(MB): ${bitbucket_project} : ${slugs_count:-0} / ~${project_size_mb:-0} MB\n\n" >> ${WORKSPACE:-.}/$(echo $url | cut -d / -f 3 | cut -d : -f 1).${bitbucket_project}.repos.txt
   server_size_mb=$(( ${server_size_mb:-0} + ${project_size_mb:-0} ))

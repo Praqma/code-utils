@@ -74,5 +74,6 @@ printf 'Rerendered: %d; skipped: %d\n' "$processed" "$skipped"
 
 if [[ $processed -gt 0 ]]; then
   overview_file="$default_results_dir/$overview_html_name"
+  bash "${script_dir}/git-lfs-candidates-consolidate.sh" "$(dirname -- "$overview_file")"
   python3 "${script_dir}/generate_overview.py"  "$(dirname -- "$overview_file")" "$(dirname -- "$overview_file")/$overview_html_name"
 fi

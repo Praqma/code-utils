@@ -4,12 +4,17 @@ import html
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 
 RE_HB = re.compile(r'^(\d+)\s+([HB])\s+(\d+)\s+(.+)$')
 RE_HIST = re.compile(r'^(\d+)\s+(\d+)\s+(.+)$')
 MIN_LOG_SIZE_BYTES = 1 * 1024 * 1024
+
+
+def git_log_command(rel_path):
+    return 'git log --all --full-history --summary --oneline -- ' + shlex.quote(rel_path)
 
 
 def to_list(node):
@@ -211,10 +216,10 @@ def collect_unique_paths(input_file, min_size_bytes=0):
 
 
 def collect_git_logs(repo_path, paths):
-    if os.environ.get('GIT_ANALYST_SKIP_LOGS', '').lower() in ('1', 'true', 'yes'):
+    if os.environ.get('GIT_ANALYST_SKIP_LOGS', '1').lower() in ('1', 'true', 'yes'):
         return {
             rel_path: {
-                'cmd': 'git log --all --full-history --summary --oneline -- ' + rel_path,
+                'cmd': git_log_command(rel_path),
                 'out': '(git log execution skipped during rendering)',
             }
             for rel_path in paths
@@ -247,7 +252,7 @@ def collect_git_logs(repo_path, paths):
             output = 'Failed to run git log: ' + str(exc)
 
         return rel_path, {
-            'cmd': 'git log --all --full-history --summary --oneline -- ' + rel_path,
+            'cmd': git_log_command(rel_path),
             'out': output,
         }
 
@@ -263,6 +268,8 @@ TAB_FILE_NAMES = (
     'bigtosmall_sorted_size_files_final.txt',
     'bigtosmall_sorted_size_total_final.txt',
     'bigtosmall_largest_per_extension.txt',
+    'bigtosmall_largest_no_extension.txt',
+    'git_lfs_candidates.txt',
     'branches_leaves.txt',
     'branches_leaves_tagged.txt',
     'branches_embedded.txt',
@@ -576,6 +583,8 @@ button:hover{background:#45475a}
       <button class="view-tab" type="button" role="tab" aria-selected="false" data-view="files" data-src="bigtosmall_sorted_size_files_final.txt" data-title="Largest single files">Largest<br>single files</button>
       <button class="view-tab" type="button" role="tab" aria-selected="false" data-view="total" data-src="bigtosmall_sorted_size_total_final.txt" data-title="Largest Revisions">Largest<br>Revisions</button>
       <button class="view-tab" type="button" role="tab" aria-selected="false" data-view="largest-extension" data-src="bigtosmall_largest_per_extension.txt" data-title="Largest per extension">Largest<br>per extension</button>
+      <button class="view-tab" type="button" role="tab" aria-selected="false" data-view="largest-no-extension" data-src="bigtosmall_largest_no_extension.txt" data-title="Largest files without extension">Largest<br>no extension</button>
+      <button class="view-tab" type="button" role="tab" aria-selected="false" data-view="lfs-candidates" data-src="git_lfs_candidates.txt" data-title="Git LFS candidate extensions">LFS<br>candidates</button>
       <button class="view-tab" type="button" role="tab" aria-selected="false" data-view="leaves" data-src="branches_leaves.txt" data-title="Branches leaves">Branches<br>leaves</button>
       <button class="view-tab" type="button" role="tab" aria-selected="false" data-view="leaves-tagged" data-src="branches_leaves_tagged.txt" data-title="Branches leaves(tagged)">Branches<br>leaves(tagged)</button>
       <button class="view-tab" type="button" role="tab" aria-selected="false" data-view="embedded" data-src="branches_embedded.txt" data-title="Branches embedded">Branches<br>embedded</button>
@@ -943,6 +952,10 @@ function buildNode(node, depth) {
   return div;
 }
 
+function shellQuote(value) {
+  return "'" + String(value).replace(/'/g, "'\\''") + "'";
+}
+
 function showLogModal(path, displayName) {
   const modal = document.getElementById('log-modal');
   const title = document.getElementById('log-title');
@@ -955,7 +968,7 @@ function showLogModal(path, displayName) {
     cmd.textContent = entry.cmd;
     out.textContent = entry.out;
   } else {
-    cmd.textContent = 'git log --all --full-history --summary --oneline -- ' + path;
+    cmd.textContent = 'git log --all --full-history --summary --oneline -- ' + shellQuote(path);
     out.textContent = '(no precomputed output found for this path)';
   }
 

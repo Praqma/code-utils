@@ -4,6 +4,32 @@
 #   Analyze a Git repository and generate object-size reports for downstream rendering.
 #   Example:
 #   WORKSPACE=/tmp/repo-report debug=true repack=false ./git-object-sizes-in-repo-analyzer.sh /path/to/repo
+#
+# Runtime configuration (set variables before the command):
+#   WORKSPACE=/path       Output and temporary-file directory. Default: current directory.
+#   repack=false           Do not repack/gc the repository. Default: true.
+#   TAGGED_BLOB_PROCESSING=false
+#                          Skip recursive scans of tagged leaf trees. Default: true.
+#   TAGGED_BLOB_WORKERS=8 Parallel tagged-tree scans. Default: 8.
+#   BRANCH_WORKERS=8      Parallel remote-branch workers. Default: nproc.
+#   BLOB_WORKERS=8        Parallel binary-verdict workers. Default: nproc.
+#   GIT_BINARY_MODE=8kb   Binary detection: 8kb (fast) or gitdiff (slower, accurate).
+#   invest_remote_branches=false
+#                          Skip remote-branch investigation. Default: true when available.
+#   skip_sizes=true       Skip repository size and Git LFS size collection.
+#   LARGEST_NO_EXT_MAX=50
+#                          Maximum extension-less files to test. Default: 50.
+#   run_git_sizer=false   Skip verbose git-sizer execution. Default: true.
+#   GIT_ANALYST_SKIP_LOGS=1
+#                          Show Git-log commands without executing them during HTML rendering.
+#                          Default: 1. Set to 0 to execute the history queries.
+#   debug=true            Enable shell tracing and retain temporary files.
+#
+# Examples:
+#   repack=false TAGGED_BLOB_WORKERS=8 run_git_sizer=false \
+#     ./git-object-sizes-in-repo-analyzer.sh /path/to/repo
+#   TAGGED_BLOB_PROCESSING=false GIT_ANALYST_SKIP_LOGS=1 \
+#     ./git-object-sizes-in-repo-analyzer.sh /path/to/repo
 
 set -eu -o pipefail
 
@@ -16,6 +42,9 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 [[ ${repack:-} == "" ]] && repack=true
 echo "repack=$repack"
+
+tagged_blob_processing="${TAGGED_BLOB_PROCESSING:-${tagged_blob_processing:-true}}"
+echo "tagged_blob_processing=$tagged_blob_processing"
 
 # Select git-side binary detection mode:
 # - "8kb"     : fast heuristic (NUL in first 8KB)
@@ -99,6 +128,7 @@ function run_verify_pack_all () {
   local idx_file
   local verified_failed="false"
 
+  printf "[Background function: %s] Verifying pack indexes\n" "${FUNCNAME[0]}"
   : > "${output_file}"
   while IFS= read -r idx_file; do
     [[ -n "${idx_file}" ]] || continue
@@ -195,6 +225,10 @@ file_output_sorted_size_extensions="${WORKSPACE}/bigtosmall_sorted_size_extensio
 file_output_largest_per_extension="${WORKSPACE}/bigtosmall_largest_per_extension.txt" && rm -rf "${file_output_largest_per_extension}"
 file_output_largest_no_extension="${WORKSPACE}/bigtosmall_largest_no_extension.txt" && rm -rf "${file_output_largest_no_extension}"
 file_output_git_size_extensions="${WORKSPACE}/git_size_extensions.txt" && rm -rf "${file_output_git_size_extensions}"
+file_output_git_lfs_candidates="${WORKSPACE}/git_lfs_candidates.txt" && rm -rf "${file_output_git_lfs_candidates}"
+
+# Each extension-less row costs one blob-SHA lookup plus three verdict probes, so cap the list.
+largest_no_extension_max="${LARGEST_NO_EXT_MAX:-50}"
 
 file_output_git_tags="${WORKSPACE}/git_tags.txt" && rm -f "${file_output_git_tags}"
 file_output_git_tags_leaves="${WORKSPACE}/git_tags_leaves.txt" && rm -f "${file_output_git_tags_leaves}"
@@ -202,12 +236,7 @@ file_output_git_tags_leaves="${WORKSPACE}/git_tags_leaves.txt" && rm -f "${file_
 git for-each-ref --format='%(refname:strip=2)' refs/tags > "${file_output_git_tags}"
 git_tags_count=$(wc -l < "${file_output_git_tags}")
 
-if [[ -f "$script_dir/git-find-sha1-of-leaf-tags.sh" ]]; then
-  bash "${script_dir}/git-find-sha1-of-leaf-tags.sh" "$git_repo_dir" > "${file_output_git_tags_leaves}" & pid_git_find_leaf_tags=$!
-else
-  echo "WARNING: $script_dir/git-find-sha1-of-leaf-tags.sh not found" >&2
-  touch "${file_output_git_tags_leaves}"
-fi
+
 
 file_output_git_sizes="${WORKSPACE}/git_sizes.txt" && rm -rf "${file_output_git_sizes}"
 
@@ -267,7 +296,7 @@ pack_file=$(find "${pack_dir}" -name '*.idx')
 function isFileGitBinaryBlob () {
   if [[ "${git_binary_mode}" == "gitdiff" ]]; then
     local mktmp p t
-    mktmp=$(mktemp -p /tmp)
+    mktmp=$(mktemp -p "${WORKSPACE}")
     trap "rm -f ${mktmp}" EXIT
 
     p=$(printf '%s\t-\t' -)
@@ -307,6 +336,64 @@ function isFileBinaryBlob () {
   return 0
 }
 
+function blobSha1For () {
+  awk -v key=" $1 $2" 'index($0, key) { print $1; exit }' "${file_tmp_blob_matches}"
+}
+
+function blobVerdict () {
+  local blob_sha1="$1"
+  local verdict=""
+  local result=0
+
+  if isFile8kbNulBlob "${blob_sha1}"; then
+    verdict="nB"
+  else
+    verdict="nA"
+  fi
+
+  if isFileGitBinaryBlob "${blob_sha1}"; then
+    verdict="${verdict}gB"
+  else
+    verdict="${verdict}gA"
+  fi
+
+  isFileBinaryBlob "${blob_sha1}" || result=$?
+  if [[ "${result}" -eq 0 ]]; then
+    verdict="${verdict}fB"
+  elif [[ "${result}" -eq 2 ]]; then
+    verdict="${verdict}fE"
+  else
+    verdict="${verdict}fA"
+  fi
+
+  case "${verdict}" in
+    nAgAfA)  ;;
+    nBgBfB)  verdict="${verdict}-!LFS" ;;
+    *B*)     verdict="${verdict}-?analyze" ;;
+    *)       verdict="${verdict}-ok" ;;
+  esac
+
+  printf '%s' "${verdict}"
+}
+
+# Input row: "<seq>\t<want_ext>\t<want_no_ext>\t<size>\t<ext>\t<path>"; output goes to a per-row file so order survives.
+function processBlobRow () {
+  local seq want_ext_row want_no_ext_row size ext path blob_sha1 verdict
+  IFS=$'\t' read -r seq want_ext_row want_no_ext_row size ext path <<< "$1"
+  [[ -n "${size}" ]] || return 0
+
+  blob_sha1=$(blobSha1For "${size}" "${path}")
+  if [[ -z "${blob_sha1}" ]]; then
+    echo "ERROR: Could not find blob SHA1 for size=${size} path=${path}" >&2
+    return 1
+  fi
+
+  verdict=$(blobVerdict "${blob_sha1}")
+  printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "${want_ext_row}" "${want_no_ext_row}" "${size}" "${ext}" "${verdict}" "${path}" \
+    > "${WORKSPACE}/blob-worker.${seq}.tmp"
+}
+
 
 if [[ ${repack} == true ]]; then
   echo "git repo and object sizes before repack:"
@@ -330,6 +417,7 @@ else
 fi
 
 function run_get_lfs_files () {
+  printf "[Background function: %s] Running 'git lfs ls-files --all'\n" "${FUNCNAME[0]}"
   : > "${WORKSPACE}/git_lfs_files.txt"
   git lfs ls-files --all > "${WORKSPACE}/git_lfs_files.txt" 2>/dev/null
 }
@@ -359,46 +447,116 @@ if [[ ${skip_sizes:-} == "" ]]; then
     git_size_lfs=$(du -sb "${git_dir}/lfs" | cut -f 1)
   }
 
-  echo "[Background process] Running get git lfs files"
+  git_lfs_started=$SECONDS
   run_get_lfs_files & pid_lfs=$!
 else
   echo "git lfs and modules sizes: skipped"
   git_lfs_files_count=0
 fi
 
+printf "[Background process]: Running git-find-sha1-of-leaf-tags.sh\n"
+if [[ -f "$script_dir/git-find-sha1-of-leaf-tags.sh" ]]; then
+  leaf_tag_started=$SECONDS
+  bash "${script_dir}/git-find-sha1-of-leaf-tags.sh" "$git_repo_dir" > "${file_output_git_tags_leaves}" & pid_git_find_leaf_tags=$!
+else
+  echo "WARNING: $script_dir/git-find-sha1-of-leaf-tags.sh not found" >&2
+  touch "${file_output_git_tags_leaves}"
+fi
+
 verify_pack_exit_code=0
-echo "[Background process] Running verify-pack for all idx files"
+verify_pack_started=$SECONDS
 run_verify_pack_all "${file_verify_pack}" & pid_verify_pack=$!
 
-printf "[Background process] Get all files in repo\n"
+printf "[Background process]: Running 'git rev-list --objects --all'\n"
+all_objects_started=$SECONDS
 git rev-list --objects --all > "${file_tmp_allfileshas}" & pid_allfileshas=$!
+
+file_tmp_leaf_commits="${WORKSPACE}/leaf_commits.tmp"
+leaf_commits_started=$SECONDS
+printf "[Background process]: Discovering leaf commits once\n"
+git rev-list --all --children |
+  awk 'NF == 1 && $1 ~ /^[a-f0-9]{40}$/ { print $1 }' |
+  LC_ALL=C sort -u > "${file_tmp_leaf_commits}"
+printf "[Timing] Unique leaf commit discovery: %ss (%s leaves)\n" \
+  "$((SECONDS - leaf_commits_started))" "$(wc -l < "${file_tmp_leaf_commits}")"
 
 regex_lstree_list='^([a-f0-9]{40})[[:space:]]+(.*)$'
 declare -A default_blobs_map
 declare -A branches_blobs_map
-declare -A tagged_blobs_map
 
 file_tmp_tagged_blobs="${WORKSPACE}/tagged_blobs.tmp"
 
-function process_tagged_blobs() {
-  local output_file="$1"
-  local leaf_sha1
-  local tagged_blob
-  local tagged_path
+function process_tagged_tree() {
+  local sequence="$1"
+  local leaf_sha1="$2"
 
-  : > "${output_file}"
-  while read -r leaf_sha1; do
-    [[ -n "${leaf_sha1}" ]] || continue
-    [[ -n "$(git tag --points-at "${leaf_sha1}")" ]] || continue
-    while IFS=$'\t' read -r tagged_blob tagged_path; do
-      [[ -n "${tagged_blob}" && -n "${tagged_path}" ]] || continue
-      printf '%s\t%s\n' "${tagged_blob}" "${tagged_path}" >> "${output_file}"
-    done < <(git ls-tree -r --full-tree "${leaf_sha1}" | awk -F $'\t' '{ split($1, fields, " "); print fields[3] "\t" $2 }')
-  done < <(git rev-list --all --children | awk 'NF == 1 && $1 ~ /^[a-f0-9]{40}$/ { print $1 }' | sort -u)
+  git ls-tree -r --full-tree "${leaf_sha1}" |
+    awk -F $'\t' '{ split($1, fields, " "); if (fields[3] != "" && $2 != "") print fields[3] "\t" $2 }' \
+      > "${WORKSPACE}/tagged_blobs_worker.${sequence}.tmp"
 }
 
-echo "[Background process] Processing tagged blobs"
-process_tagged_blobs "${file_tmp_tagged_blobs}" & pid_tagged_blobs=$!
+function report_temp_usage() {
+  local label="$1"
+
+  find "${WORKSPACE}" -maxdepth 1 -type f -name '*.tmp' -printf '%s\n' |
+    awk -v label="${label}" '{ files++; bytes += $1 } END {
+      printf "[Temp] %s: %d files, %.0f bytes (%.2f GiB)\n", label, files, bytes, bytes / 1073741824
+    }'
+}
+
+function process_tagged_blobs() {
+  printf "[Background function: %s] Processing tagged blobs\n" "${FUNCNAME[0]}"
+  local output_file="$1"
+  local leaf_list="${file_tmp_leaf_commits}"
+  local tag_targets="${output_file}.tag-targets"
+  local tagged_leaves="${output_file}.tagged-leaves"
+  local tree_jobs="${output_file}.jobs"
+  local leaf_sha1
+  local sequence=0
+  local tagged_blob_workers="${TAGGED_BLOB_WORKERS:-8}"
+
+  if [[ ! "${tagged_blob_workers}" =~ ^[1-9][0-9]*$ ]]; then
+    echo "WARNING: Invalid TAGGED_BLOB_WORKERS='${tagged_blob_workers}'; using 8"
+    tagged_blob_workers=8
+  fi
+
+  # Reuse the shared leaf list; only build the tag-target list here.
+  git for-each-ref --format='%(objecttype) %(objectname) %(*objecttype) %(*objectname)' refs/tags |
+    awk '$1 == "commit" { print $2 } $3 == "commit" { print $4 }' |
+    LC_ALL=C sort -u > "${tag_targets}"
+  comm -12 "${leaf_list}" "${tag_targets}" > "${tagged_leaves}"
+
+  : > "${tree_jobs}"
+  while IFS= read -r leaf_sha1; do
+    [[ -n "${leaf_sha1}" ]] || continue
+    sequence=$((sequence + 1))
+    printf '%08d %s\n' "${sequence}" "${leaf_sha1}" >> "${tree_jobs}"
+  done < "${tagged_leaves}"
+  printf "[Background function: %s] Tagged leaves queued=%s workers=%s\n" \
+    "${FUNCNAME[0]}" "${sequence}" "${tagged_blob_workers}"
+
+  export -f process_tagged_tree
+  export WORKSPACE
+  xargs -r -n 2 -P "${tagged_blob_workers}" bash -c \
+    'process_tagged_tree "$1" "$2"' tagged-tree-worker < "${tree_jobs}"
+
+  # Keep shard paths in sequence order so the downstream last-path-wins map is unchanged.
+  find "${WORKSPACE}" -maxdepth 1 -type f -name 'tagged_blobs_worker.*.tmp' -print |
+    LC_ALL=C sort > "${output_file}"
+  find "${WORKSPACE}" -maxdepth 1 -type f -name 'tagged_blobs_worker.*.tmp' -printf '%s\n' |
+    awk '{ files++; bytes += $1 } END {
+      printf "[Temp] Tagged tree shards: %d files, %.0f bytes (%.2f GiB)\n", files, bytes, bytes / 1073741824
+    }'
+}
+
+if [[ ${tagged_blob_processing} == true ]]; then
+  tagged_blobs_started=$SECONDS
+  process_tagged_blobs "${file_tmp_tagged_blobs}" & pid_tagged_blobs=$!
+else
+  echo "tagged_blob_processing != true - skip"
+  : > "${file_tmp_tagged_blobs}"
+  pid_tagged_blobs=""
+fi
 
 echo "Listing all git tags.."
 git for-each-ref --format='%(refname:strip=2)' refs/tags > "${file_output_git_tags}"
@@ -410,6 +568,8 @@ function process_branch() {
   local merge_base
   local first
   local second
+  local branch_head
+  local branch_diff_file
   local head_blob_line
   local branch_blob_line_array
 
@@ -422,8 +582,8 @@ function process_branch() {
   : > "$blobs_file"
 
   branch_diff_commit_files_to_HEAD="$(printf '%-15s' "n/a")"
-  read -r first second <<< "$(git rev-list --all --children "$branch" | grep "^$(git log -1 --format=%H "$branch")")"
-  if [[ -n ${second:-} ]]; then
+  branch_head=$(git log -1 --format=%H "$branch")
+  if ! grep -Fxq "${branch_head}" "${file_tmp_leaf_commits}"; then
     printf '%s\n' \
       "$(git log --abbrev=12 --oneline --format="%cs : ${branch_diff_commit_files_to_HEAD} : %h : %<(50,mtrunc)%s : %D" "$branch" -1)" \
       > "$embedded_file"
@@ -432,7 +592,9 @@ function process_branch() {
 
   merge_base=$(git merge-base "$default_branch" "$branch")
   branch_commits_to_HEAD="$(git log --oneline --format=%H "${merge_base}..${branch}" | wc -l)"
-  branch_files_to_HEAD="$(git diff-tree -r "${merge_base}..${branch}" | cut -f 4- -d ' ' | wc -l)"
+  branch_diff_file="${WORKSPACE}/branch-worker-diff.${branch_id}.tmp"
+  git diff-tree -r "${merge_base}..${branch}" | cut -f 4- -d ' ' > "${branch_diff_file}"
+  branch_files_to_HEAD="$(wc -l < "${branch_diff_file}")"
   branch_diff_commit_files_to_HEAD="$(printf '%-15s' "$branch_commits_to_HEAD/$branch_files_to_HEAD")"
   printf '%s\n' \
     "$(git log --abbrev=12 --oneline --format="%cs : ${branch_diff_commit_files_to_HEAD} : %h : %<(50,mtrunc)%s : %D" "$branch" -1)" \
@@ -444,11 +606,13 @@ function process_branch() {
     if [[ ${branch_blob_line_array[0]} != "0000000000000000000000000000000000000000" ]]; then
       printf '%s\t%s\n' "${branch_blob_line_array[0]}" "${branch_blob_line_array[2]}" >> "$blobs_file"
     fi
-  done < <(git diff-tree -r "${merge_base}..${branch}" | cut -f 4- -d ' ')
+  done < "${branch_diff_file}"
+  rm -f "${branch_diff_file}"
 }
 
+branch_investigation_started=$SECONDS
 if [[ ${invest_remote_branches} == true ]]; then
-  echo "Processing branch investigation .."
+  printf "[Background function: process_branch] Processing remote branch investigation\n"
   echo "Reading blob in default branch: ${default_branch}"
   while read -r lstree_blob_line; do
     if [[ "${lstree_blob_line}" =~ $regex_lstree_list ]] ; then
@@ -458,15 +622,16 @@ if [[ ${invest_remote_branches} == true ]]; then
         [[ ${progress:-} == "true" ]] && printf "."
     else
         echo "ERROR: parsing lstree list: $lstree_blob_line"
-        echo "       using regex:         $regex_lstree_list"
+        # echo "       using regex:         $regex_lstree_list"
         exit 1
     fi
   done < <( git ls-tree -r ${default_branch} | cut -f 3- -d ' ')
   [[ ${progress:-} == "true" ]] && echo
+  
   echo "Reading branches diff blobs.."
   rm -f "${WORKSPACE}"/branch-worker-{leaves,embedded,blobs}.*.tmp
   export -f process_branch
-  export WORKSPACE default_branch
+  export WORKSPACE default_branch file_tmp_leaf_commits
   branch_workers="${BRANCH_WORKERS:-$(nproc 2>/dev/null || printf 1)}"
   git branch "${branch_remote_option}" | grep -v '^\*' | cut -f 3 -d ' ' | grep -v 'origin/HEAD$' | tr '\n' '\0' \
      | xargs -0 -r -n 1 -P "${branch_workers}" bash -c 'process_branch "$1"' branch-worker
@@ -483,6 +648,7 @@ if [[ ${invest_remote_branches} == true ]]; then
       xargs -0 -r cat
   )
   rm -rf "${WORKSPACE}"/branch-worker-{leaves,embedded,blobs}.*.tmp
+
   printf "\nSortning branches lists in date order: "
   printf "%-10s : %-15s : %-12s : %-50s : %s\n" \
           "Updated" "commits/files" "sha1" "subject" "refs" >"${file_output_branch_leaves}"
@@ -501,7 +667,7 @@ if [[ ${invest_remote_branches} == true ]]; then
           "Updated" "commits/files" "sha1" "subject" "refs" >"${file_output_branch_embedded_tagged}"
   grep -E ' : tag:' "${file_output_branch_embedded}" >> "${file_output_branch_embedded_tagged}" 2> /dev/null || echo "INFO: No embedded branches with tags"
   printf "Done\n\n"
-else
+# else
   printf "invest_remote_branches != true (%s) - skip\n" "$invest_remote_branches"
 fi
 
@@ -511,6 +677,7 @@ wait $pid_git_find_leaf_tags || {
   exit 1
 }
 git_leaves_tagged_count=$(wc -l < "${file_output_git_tags_leaves}")
+printf "[Timing] Leaf-tag discovery: %ss\n" "$((SECONDS - leaf_tag_started))"
 printf "Done\n\n"
 
 printf "Waiting: git lfs ls-files --all to finish: "
@@ -518,6 +685,9 @@ wait "$pid_lfs" || {
   echo "ERROR: git lfs ls-files failed"
   exit 1
 }
+if [[ ${skip_sizes:-} == "" ]]; then
+  printf "[Timing] Git LFS file listing: %ss\n" "$((SECONDS - git_lfs_started))"
+fi
 printf "Done\n\n"
 git_lfs_files_count=$(wc -l < "${WORKSPACE}/git_lfs_files.txt")
 
@@ -541,6 +711,7 @@ wait "$pid_verify_pack" || {
     }
   fi
 }
+printf "[Timing] Pack verification: %ss\n" "$((SECONDS - verify_pack_started))"
 printf "Done\n\n"
 
 git_size_objects_count=$(grep -Ec '^[0-9a-f]{40} (commit|tree|blob|tag) ' "${file_verify_pack}" || true)
@@ -550,13 +721,21 @@ wait "$pid_allfileshas" || {
   echo "ERROR: git rev-list --objects --all failed"
   exit 1
 }
+printf "[Timing] All-ref object listing: %ss\n" "$((SECONDS - all_objects_started))"
 printf "Done\n\n"
 
 printf "Waiting: tagged blob processing to finish: "
-wait "$pid_tagged_blobs" || {
-  echo "ERROR: tagged blob processing failed"
-  exit 1
-}
+if [[ ${tagged_blob_processing} == true ]]; then
+  wait "$pid_tagged_blobs" || {
+    echo "ERROR: tagged blob processing failed"
+    exit 1
+  }
+  printf "[Timing] Tagged-blob phase: %ss\n" "$((SECONDS - tagged_blobs_started))"
+fi
+if [[ ${invest_remote_branches} == true ]]; then
+  printf "[Timing] Branch investigation: %ss\n" "$((SECONDS - branch_investigation_started))"
+fi
+report_temp_usage "after tagged blob processing"
 printf "Done\n\n"
 
 declare git_size_total_mega git_size_objects_mega git_size_pack_mega git_size_lfs_mega git_size_modules_mega
@@ -601,6 +780,7 @@ else
 fi
 
 echo "Generate file sorted list:"
+file_list_started=$SECONDS
 touch "${WORKSPACE}/bigtosmall_errors.txt"
 
 file_tmp_default_blobs_map="${WORKSPACE}/default_blobs_map.tmp" && rm -f "${file_tmp_default_blobs_map}" && touch "${file_tmp_default_blobs_map}"
@@ -613,15 +793,11 @@ for blob in "${!branches_blobs_map[@]}"; do
   printf "%s\t%s\n" "$blob" "${branches_blobs_map[$blob]}" >> "${file_tmp_branches_blobs_map}"
 done
 
-file_tmp_tagged_blobs_map="${WORKSPACE}/tagged_blobs_map.tmp" && rm -f "${file_tmp_tagged_blobs_map}" && touch "${file_tmp_tagged_blobs_map}"
-while IFS=$'\t' read -r blob path; do
-  [[ -n "${blob}" && -n "${path}" ]] || continue
-  tagged_blobs_map["${blob}"]="${path}"
-  printf "%s\t%s\n" "${blob}" "${path}" >> "${file_tmp_tagged_blobs_map}"
-done < "${file_tmp_tagged_blobs}"
+file_tmp_tagged_blobs_map="${file_tmp_tagged_blobs}"
 
 : > "${file_output_sorted_size_files}"
 : > "${file_tmp_bigtosmall_join_total}"
+aggregation_started=$SECONDS
 awk -v default_map="${file_tmp_default_blobs_map}" \
     -v branch_map="${file_tmp_branches_blobs_map}" \
   -v tagged_map="${file_tmp_tagged_blobs_map}" \
@@ -636,8 +812,16 @@ awk -v default_map="${file_tmp_default_blobs_map}" \
         branch_path[$1] = $2
       }
       close(branch_map)
-      while ((getline < tagged_map) > 0) {
-        tagged_path[$1] = $2
+      while ((getline tagged_file < tagged_map) > 0) {
+        while ((getline tagged_line < tagged_file) > 0) {
+          separator = index(tagged_line, "\t")
+          if (separator > 0) {
+            blob = substr(tagged_line, 1, separator - 1)
+            path = substr(tagged_line, separator + 1)
+            tagged_path[blob] = path
+          }
+        }
+        close(tagged_file)
       }
       close(tagged_map)
     }
@@ -685,7 +869,11 @@ awk -v default_map="${file_tmp_default_blobs_map}" \
         printf "%s %s %s %s ( I )\n", total_size[path_file], total_prefix[path_file], total_count[path_file], path_file >> totals_out
       }
     }' "${file_tmp_bigtosmall_join}"
+printf "[Timing] Direct-object list aggregation (including tag-map loading): %ss\n" "$((SECONDS - aggregation_started))"
+sort_started=$SECONDS
 /usr/bin/sort -u -h -r "${file_tmp_bigtosmall_join_total}" > "${file_output_sorted_size_total}"
+printf "[Timing] Direct-object totals sort: %ss\n" "$((SECONDS - sort_started))"
+printf "[Timing] Direct-object file-list phase: %ss\n" "$((SECONDS - file_list_started))"
 printf "\n\n"
 
 touch "${file_output_sorted_size_files_revisions}"
@@ -700,9 +888,11 @@ else
 fi
 
 echo "Generate file sorted list:"
+revision_list_started=$SECONDS
 touch "${WORKSPACE}/bigtosmall_errors_revision.txt"
 : > "${file_output_sorted_size_files_revisions}"
 : > "${file_tmp_bigtosmall_join_total_revisions}"
+revision_aggregation_started=$SECONDS
 awk -v default_map="${file_tmp_default_blobs_map}" \
     -v branch_map="${file_tmp_branches_blobs_map}" \
   -v tagged_map="${file_tmp_tagged_blobs_map}" \
@@ -717,8 +907,16 @@ awk -v default_map="${file_tmp_default_blobs_map}" \
         branch_path[$1] = $2
       }
       close(branch_map)
-      while ((getline < tagged_map) > 0) {
-        tagged_path[$1] = $2
+      while ((getline tagged_file < tagged_map) > 0) {
+        while ((getline tagged_line < tagged_file) > 0) {
+          separator = index(tagged_line, "\t")
+          if (separator > 0) {
+            blob = substr(tagged_line, 1, separator - 1)
+            path = substr(tagged_line, separator + 1)
+            tagged_path[blob] = path
+          }
+        }
+        close(tagged_file)
       }
       close(tagged_map)
     }
@@ -766,16 +964,33 @@ awk -v default_map="${file_tmp_default_blobs_map}" \
         printf "%s %s %s %s ( P )\n", total_size[path_file], total_prefix[path_file], total_count[path_file], path_file >> totals_out
       }
     }' "${file_tmp_bigtosmall_join_revisions}"
+printf "[Timing] Revision-object list aggregation: %ss\n" "$((SECONDS - revision_aggregation_started))"
+revision_sort_started=$SECONDS
 /usr/bin/sort -u -h -r "${file_tmp_bigtosmall_join_total_revisions}" > "${file_output_sorted_size_total_revisions}"
+printf "[Timing] Revision-object totals sort: %ss\n" "$((SECONDS - revision_sort_started))"
+printf "[Timing] Revision-object file-list phase: %ss\n" "$((SECONDS - revision_list_started))"
 printf "\n\n"
 
+final_sort_started=$SECONDS
 cat "${file_output_sorted_size_total_revisions}" "${file_output_sorted_size_total}" | sort -k 1 -h -r > "${file_output_sorted_size_total_final}"
 cat "${file_output_sorted_size_files_revisions}" "${file_output_sorted_size_files}" | sort -k 1 -h -r > "${file_output_sorted_size_files_final}"
+printf "[Timing] Combined final list sorts: %ss\n" "$((SECONDS - final_sort_started))"
+report_temp_usage "after file-list generation"
 
 # Largest single file per extension from the pre-sorted file-level report.
 # Input rows are either: "<size> <path>" or "<size> <H|B> <path>".
 declare -A ext_seen
+no_ext_written=0
+blob_wanted_count=0
 : > "${file_output_largest_per_extension}"
+: > "${file_output_largest_no_extension}"
+
+file_tmp_blob_wanted="${WORKSPACE}/blob_wanted.tmp" && : > "${file_tmp_blob_wanted}"
+file_tmp_blob_patterns="${WORKSPACE}/blob_patterns.tmp" && : > "${file_tmp_blob_patterns}"
+file_tmp_blob_matches="${WORKSPACE}/blob_matches.tmp" && : > "${file_tmp_blob_matches}"
+
+# Pass 1: pick the rows worth a verdict. Pure bash, no forks, so it stays cheap on huge reports.
+blob_selection_started=$SECONDS
 while IFS= read -r line; do
   [[ -n "${line}" ]] || continue
 
@@ -799,57 +1014,82 @@ while IFS= read -r line; do
   fi
   ext="${ext,,}"
 
-  if [[ -z "${ext_seen[${ext}]+x}" ]]; then
+  want_ext_row=0
+  want_no_ext_row=0
+  [[ -z "${ext_seen[${ext}]+x}" ]] && want_ext_row=1
+  if [[ "${ext}" == "[no_ext]" && "${no_ext_written}" -lt "${largest_no_extension_max}" ]]; then
+    want_no_ext_row=1
+    no_ext_written=$(( no_ext_written + 1 ))
+  fi
+
+  if [[ "${want_ext_row}" -eq 1 || "${want_no_ext_row}" -eq 1 ]]; then
     ext_seen["${ext}"]=1
-
-    blob_sha1=$(grep -h -F " ${size} ${path}" \
-                    "${file_tmp_bigtosmall_join}" \
-                    "${file_tmp_bigtosmall_join_revisions}" \
-                  | awk 'NR==1 { print $1 }')
-
-    [[ -z "${blob_sha1}" ]] && {
-      echo "ERROR: Could not find blob SHA1 for size=${size} path=${path}" >&2
-      exit 1
-    }
-
-    verdict=""
-    if isFile8kbNulBlob "$blob_sha1"; then
-      verdict="${verdict}nB"
-    else
-      verdict="${verdict}nA"
-    fi
-
-    if isFileGitBinaryBlob "$blob_sha1"; then
-        verdict="${verdict}gB"
-    else
-        verdict="${verdict}gA"
-    fi
-
-    result=0  
-    isFileBinaryBlob "$blob_sha1" || result=$?
-    if [ "$result" -eq "0" ] ; then
-      verdict="${verdict}fB"
-    elif [ "$result" -eq "2" ] ; then
-      verdict="${verdict}fE"
-    else
-      verdict="${verdict}fA"
-    fi
-    if [[ $verdict == "nAgAfA" ]]; then 
-      verdict="${verdict}"
-    elif [[ $verdict == "nBgBfB" ]]; then
-      verdict="${verdict}-!LFS"
-      printf "INFO: %s %s %s %s\n" "${size}" "${ext}" "${verdict}" "${path}" 
-    elif [[ $verdict == *B* ]]; then 
-      verdict="${verdict}-?analyze"
-      printf "INFO: %s %s %s %s\n" "${size}" "${ext}" "${verdict}" "${path}" 
-    else
-      verdict="${verdict}-ok"
-    fi 
-
-    printf "%s %s %s %s\n" "${size}" "${ext}" "${verdict}" "${path}" >> "${file_output_largest_per_extension}"
+    blob_wanted_count=$(( blob_wanted_count + 1 ))
+    printf '%06d\t%s\t%s\t%s\t%s\t%s\n' \
+      "${blob_wanted_count}" "${want_ext_row}" "${want_no_ext_row}" "${size}" "${ext}" "${path}" >> "${file_tmp_blob_wanted}"
+    printf ' %s %s\n' "${size}" "${path}" >> "${file_tmp_blob_patterns}"
   fi
 done < "${file_output_sorted_size_files_final}"
+printf "[Timing] Verdict row selection: %ss (%s candidates)\n" \
+  "$((SECONDS - blob_selection_started))" "${blob_wanted_count}"
+
+# Pass 2: resolve every blob SHA1 in one sweep of the joined object lists instead of one grep per row.
+blob_lookup_started=$SECONDS
+if [[ -s "${file_tmp_blob_patterns}" ]]; then
+  grep -h -F -f "${file_tmp_blob_patterns}" \
+      "${file_tmp_bigtosmall_join}" \
+      "${file_tmp_bigtosmall_join_revisions}" \
+    > "${file_tmp_blob_matches}" || true
+fi
+  printf "[Timing] Blob-pattern lookup: %ss\n" "$((SECONDS - blob_lookup_started))"
+
+# Pass 3: one verdict per selected row, in parallel - each row costs three git probes over the full blob.
+echo "Computing binary verdicts for ${blob_wanted_count} blobs.."
+rm -f "${WORKSPACE}"/blob-worker.*.tmp
+export -f processBlobRow blobSha1For blobVerdict isFile8kbNulBlob isFileGitBinaryBlob isFileBinaryBlob
+export WORKSPACE file_tmp_blob_matches git_binary_mode
+blob_workers="${BLOB_WORKERS:-$(nproc 2>/dev/null || printf 1)}"
+tr '\n' '\0' < "${file_tmp_blob_wanted}" \
+  | xargs -0 -r -n 1 -P "${blob_workers}" bash -c 'processBlobRow "$1"' blob-worker
+
+while IFS=$'\t' read -r want_ext_row want_no_ext_row size ext verdict path; do
+  [[ -n "${size}" ]] || continue
+
+  case "${verdict}" in
+    *'-!LFS'|*'-?analyze')
+      printf "INFO: %s %s %s %s\n" "${size}" "${ext}" "${verdict}" "${path}"
+      ;;
+  esac
+
+  if [[ "${want_ext_row}" -eq 1 ]]; then
+    printf "%s %s %s %s\n" "${size}" "${ext}" "${verdict}" "${path}" >> "${file_output_largest_per_extension}"
+  fi
+
+  if [[ "${want_no_ext_row}" -eq 1 ]]; then
+    printf "%s %s %s %s\n" "${size}" "${ext}" "${verdict}" "${path}" >> "${file_output_largest_no_extension}"
+  fi
+done < <(find "${WORKSPACE}" -maxdepth 1 -name 'blob-worker.*.tmp' -type f -print0 | sort -z | xargs -0 -r cat)
+rm -f "${WORKSPACE}"/blob-worker.*.tmp
 echo "Largest file per extension: ${file_output_largest_per_extension}"
+echo "Largest files without extension (max ${largest_no_extension_max}): ${file_output_largest_no_extension}"
+
+# Glob patterns for `git lfs migrate import --include=` / .gitattributes, split by confidence.
+awk -v q="'" '
+{
+  ext = $2
+  verdict = $3
+  if (ext == "[no_ext]") next
+  if (verdict ~ /-!LFS$/ || tolower(verdict) ~ /must-lfs/) {
+    red = (red == "" ? "*." ext : red ",*." ext)
+  } else if (verdict != "nAgAfA" && verdict !~ /-ok$/) {
+    yellow = (yellow == "" ? "*." ext : yellow ",*." ext)
+  }
+}
+END {
+  printf "git_lfs_candidates=%s%s%s\n", q, red, q
+  printf "git_lfs_mixed=%s%s%s\n", q, yellow, q
+}' "${file_output_largest_per_extension}" > "${file_output_git_lfs_candidates}"
+echo "Git LFS candidate extensions: ${file_output_git_lfs_candidates}"
 
 # Aggregate total size by file extension from the final totals report.
 awk 'BEGIN { OFS=" " }
@@ -932,6 +1172,7 @@ git_size_objects_verdict='${git_size_objects_verdict}'
 git_size_lfs_verdict='${git_size_lfs_verdict}'
 git_verdict='${git_size_objects_verdict}&${git_size_lfs_verdict}'
 EOF
+cat "${file_output_git_lfs_candidates}" >> "${file_output_git_sizes}"
 
 # Enable with: run_git_sizer=true ./git-object-sizes-in-repo-analyzer.sh [repo-path]
 if [[ "${run_git_sizer:-true}" == "true" ]]; then

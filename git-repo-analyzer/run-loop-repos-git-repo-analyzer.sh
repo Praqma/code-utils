@@ -131,5 +131,6 @@ fi
 cd $results_root
 pwd
 ls -la 
+bash "$(dirname "$0")/git-lfs-candidates-consolidate.sh" "$results_root"
 python3 "$(dirname "$0")/generate_overview.py" "$results_root" "$results_root/overview.html"
 
